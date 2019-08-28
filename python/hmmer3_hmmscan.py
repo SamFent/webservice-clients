@@ -32,6 +32,7 @@ from __future__ import print_function
 import os
 import sys
 import time
+import requests
 import platform
 from xmltramp2 import xmltramp
 from optparse import OptionParser
@@ -55,6 +56,7 @@ except NameError:
 
 # Base URL for service
 baseUrl = u'https://www.ebi.ac.uk/Tools/services/rest/hmmer3_hmmscan'
+version = u'2019-07-03 12:51'
 
 # Set interval for checking status
 pollFreq = 3
@@ -69,32 +71,35 @@ numOpts = len(sys.argv)
 parser = OptionParser(add_help_option=False)
 
 # Tool specific options (Try to print all the commands automatically)
-parser.add_option('--incE', help=('Significance E-values[Model]'))
-parser.add_option('--incdomE', help=('Significance E-values[Hit]'))
-parser.add_option('--E', help=('Report E-values[Model]'))
-parser.add_option('--domE', help=('Report E-values[Hit]'))
-parser.add_option('--incT', help=('Significance bit scores[Sequence]'))
-parser.add_option('--incdomT', help=('Significance bit scores[Hit]'))
-parser.add_option('--T', help=('Report bit scores[Sequence]'))
-parser.add_option('--domT', help=('Report bit scores[Hit]'))
+parser.add_option('--incE', type=str, help=('Significance E-values[Model]'))
+parser.add_option('--incdomE', type=str, help=('Significance E-values[Hit]'))
+parser.add_option('--E', type=str, help=('Report E-values[Model]'))
+parser.add_option('--domE', type=str, help=('Report E-values[Hit]'))
+parser.add_option('--incT', type=str, help=('Significance bit scores[Sequence]'))
+parser.add_option('--incdomT', type=str, help=('Significance bit scores[Hit]'))
+parser.add_option('--T', type=str, help=('Report bit scores[Sequence]'))
+parser.add_option('--domT', type=str, help=('Report bit scores[Hit]'))
 parser.add_option('--cut_ga', action='store_true', help=('Use the gathering threshold.'))
 parser.add_option('--nobias', action='store_true', help=('Filters'))
-parser.add_option('--hmmdbparam', help=('hmmdbparam'))
+parser.add_option('--hmmdbparam', type=str, help=('hmmdbparam'))
+parser.add_option('--compressedout', action='store_true', help=('By default it runs hmm2c plus post-processing (default output),'
+                  'whereas with compressedout, it gets compressed output only.'))
 parser.add_option('--alignView', action='store_true', help=('Output alignment in result'))
-parser.add_option('--database', help=('HMM Database'))
-parser.add_option('--sequence', help=('The input sequence can be entered directly into this form. The'
+parser.add_option('--database', type=str, help=('HMM Database'))
+parser.add_option('--sequence', type=str, help=('The input sequence can be entered directly into this form. The'
                   'sequence can be be in FASTA or UniProtKB/Swiss-Prot format. A'
                   'partially formatted sequence is not accepted. Adding a return to the'
                   'end of the sequence may help certain applications understand the'
                   'input. Note that directly using data from word processors may yield'
                   'unpredictable results as hidden/control characters may be present.'))
+parser.add_option('--nhits', type=int, help=('Number of hits to be displayed.'))
 # General options
 parser.add_option('-h', '--help', action='store_true', help='Show this help message and exit.')
 parser.add_option('--email', help='E-mail address.')
 parser.add_option('--title', help='Job title.')
 parser.add_option('--outfile', help='File name for results.')
 parser.add_option('--outformat', help='Output format for results.')
-parser.add_option('--async', action='store_true', help='Asynchronous mode.')
+parser.add_option('--asyncjob', action='store_true', help='Asynchronous mode.')
 parser.add_option('--jobid', help='Job identifier.')
 parser.add_option('--polljob', action="store_true", help='Get job result.')
 parser.add_option('--pollFreq', type='int', default=3, help='Poll frequency in seconds (default 3s).')
@@ -102,8 +107,15 @@ parser.add_option('--status', action="store_true", help='Get job status.')
 parser.add_option('--resultTypes', action='store_true', help='Get result types.')
 parser.add_option('--params', action='store_true', help='List input parameters.')
 parser.add_option('--paramDetail', help='Get details for parameter.')
+parser.add_option('--multifasta', action='store_true', help='Treat input as a set of fasta formatted sequences.')
+parser.add_option('--useSeqId', action='store_true', help='Use sequence identifiers for output filenames.'
+                                                          'Only available in multi-fasta and multi-identifier modes.')
+parser.add_option('--maxJobs', type='int', help='Maximum number of concurrent jobs. '
+                                                'Only available in multifasta or list file modes.')
+
 parser.add_option('--quiet', action='store_true', help='Decrease output level.')
 parser.add_option('--verbose', action='store_true', help='Increase output level.')
+parser.add_option('--version', action='store_true', help='Prints out the version of the Client and exit.')
 parser.add_option('--debugLevel', type='int', default=debugLevel, help='Debugging level.')
 parser.add_option('--baseUrl', default=baseUrl, help='Base URL for service.')
 
@@ -126,6 +138,14 @@ if options.pollFreq:
 
 if options.baseUrl:
     baseUrl = options.baseUrl
+if options.multifasta:
+    multifasta = options.multifasta
+
+if options.useSeqId:
+    useSeqId = options.useSeqId
+
+if options.maxJobs:
+    maxJobs = options.maxJobs
 
 
 # Debug print
@@ -139,16 +159,16 @@ def getUserAgent():
     printDebugMessage(u'getUserAgent', u'Begin', 11)
     # Agent string for urllib2 library.
     urllib_agent = u'Python-urllib/%s' % urllib_version
-    clientRevision = u'$Revision: 2018 $'
-    clientVersion = u'0'
-    if len(clientRevision) > 11:
-        clientVersion = clientRevision[11:-2]
+    clientRevision = version
     # Prepend client specific agent string.
+    try:
+        pythonversion = platform.python_version()
+        pythonsys = platform.system()
+    except ValueError:
+        pythonversion, pythonsys = "Unknown", "Unknown"
     user_agent = u'EBI-Sample-Client/%s (%s; Python %s; %s) %s' % (
-        clientVersion, os.path.basename(__file__),
-        platform.python_version(), platform.system(),
-        urllib_agent
-    )
+        clientRevision, os.path.basename(__file__),
+        pythonversion, pythonsys, urllib_agent)
     printDebugMessage(u'getUserAgent', u'user_agent: ' + user_agent, 12)
     printDebugMessage(u'getUserAgent', u'End', 11)
     return user_agent
@@ -180,8 +200,7 @@ def restRequest(url):
         reqH.close()
     # Errors are indicated by HTTP status codes.
     except HTTPError as ex:
-        print(xmltramp.parse(unicode(ex.read(), u'utf-8'))[0][0])
-        quit()
+        result = requests.get(url).content
     printDebugMessage(u'restRequest', u'End', 11)
     return result
 
@@ -266,6 +285,40 @@ def serviceRun(email, title, params):
     printDebugMessage(u'serviceRun', u'jobId: ' + jobId, 2)
     printDebugMessage(u'serviceRun', u'End', 1)
     return jobId
+def multipleServiceRun(email, title, params, useSeqId, maxJobs, outputLevel):
+    seqs = params['sequence']
+    seqs = seqs.split(">")[1:]
+    i = 0
+    j = maxJobs
+    done = 0
+    jobs = []
+    while done < len(seqs):
+        c = 0
+        for seq in seqs[i:j]:
+            c += 1
+            params['sequence'] = ">" + seq
+            if c <= int(maxJobs):
+                jobId = serviceRun(options.email, options.title, params)
+                jobs.append(jobId)
+                if outputLevel > 0:
+                    if useSeqId:
+                        print("Submitting job for: %s" % str(seq.split()[0]))
+                    else:
+                        print("JobId: " + jobId, file=sys.stderr)
+        for k, jobId in enumerate(jobs[:]):
+            if outputLevel > 0:
+                print("JobId: " + jobId, file=sys.stderr)
+            else:
+                print(jobId)
+            if useSeqId:
+                options.outfile = str(seqs[i + k].split()[0])
+            getResult(jobId)
+            done += 1
+            jobs.remove(jobId)
+        i += maxJobs
+        j += maxJobs
+        time.sleep(pollFreq)
+
 
 
 # Get job status
@@ -397,10 +450,15 @@ def getResult(jobId):
                 else:
                     fmode = 'w'
 
-                fh = open(filename, fmode)
-
-                fh.write(result)
-                fh.close()
+                try:
+                    fh = open(filename, fmode)
+                    fh.write(result)
+                    fh.close()
+                except TypeError:
+                    fh.close()
+                    fh = open(filename, "wb")
+                    fh.write(result)
+                    fh.close()
                 if outputLevel > 0:
                     print("Creating result file: " + filename)
     printDebugMessage(u'getResult', u'End', 1)
@@ -445,11 +503,15 @@ Protein function analysis with HMMER 3 hmmscan.
   --cut_ga              Use the gathering threshold.
   --nobias              Filters.
   --hmmdbparam          hmmdbparam.
+  --compressedout       By default it runs hmm2c plus post-processing (default
+                        output), whereas with compressedout, it gets compressed
+                        output only.
   --alignView           Output alignment in result.
+  --nhits               Number of hits to be displayed.
 
 [General]
   -h, --help            Show this help message and exit.
-  --async               Forces to make an asynchronous query.
+  --asyncjob            Forces to make an asynchronous query.
   --title               Title for job.
   --status              Get job status.
   --resultTypes         Get available result types for job.
@@ -461,6 +523,7 @@ Protein function analysis with HMMER 3 hmmscan.
   --params              List input parameters.
   --paramDetail         Display details for input parameter.
   --verbose             Increase output.
+  --version             Prints out the version of the Client and exit.
   --quiet               Decrease output.
   --baseUrl             Base URL. Defaults to:
                         https://www.ebi.ac.uk/Tools/services/rest/hmmer3_hmmscan
@@ -473,7 +536,7 @@ Synchronous job:
 Asynchronous job:
   Use this if you want to retrieve the results at a later time. The results
   are stored for up to 24 hours.
-  Usage: python hmmer3_hmmscan.py --async --email <your@email.com> [options...] <SeqFile|SeqID(s)>
+  Usage: python hmmer3_hmmscan.py --asyncjob --email <your@email.com> [options...] <SeqFile|SeqID(s)>
   Returns: jobid
 
 Check status of Asynchronous job:
@@ -505,15 +568,19 @@ elif options.params:
 # Get parameter details
 elif options.paramDetail:
     printGetParameterDetails(options.paramDetail)
+# Print Client version
+elif options.version:
+    print("Revision: %s" % version)
+    sys.exit()
 # Submit job
 elif options.email and not options.jobid:
     params = {}
-    if len(args) == 1:
+    if len(args) == 1 and "true" not in args and "false" not in args:
         if os.path.exists(args[0]):  # Read file into content
             params[u'sequence'] = readFile(args[0])
         else:  # Argument is a sequence id
             params[u'sequence'] = args[0]
-    elif len(args) == 2:
+    elif len(args) == 2 and "true" not in args and "false" not in args:
         if os.path.exists(args[0]) and os.path.exists(args[1]):  # Read file into content
             params[u'asequence'] = readFile(args[0])
             params[u'bsequence'] = readFile(args[1])
@@ -588,28 +655,52 @@ elif options.email and not options.jobid:
         params['hmmdbparam'] = options.hmmdbparam
     
 
+    if options.compressedout:
+        params['compressedout'] = 'true'
+    else:
+        params['compressedout'] = 'false'
+    
+    if options.compressedout:
+        params['compressedout'] = options.compressedout
+    
+
     if not options.alignView:
         params['alignView'] = 'true'
     if options.alignView:
         params['alignView'] = options.alignView
     
 
+    if options.nhits:
+        params['nhits'] = options.nhits
+    
+
 
     # Submit the job
-    jobId = serviceRun(options.email, options.title, params)
-    if options.async: # Async mode
-        print(jobId)
-        if outputLevel > 0:
-            print("To check status: python %s --status --jobid %s"
-                  "" % (os.path.basename(__file__), jobId))
+    if options.multifasta:
+        multipleServiceRun(options.email, options.title, params,
+                           options.useSeqId, options.maxJobs,
+                           outputLevel)
     else:
-        # Sync mode
-        if outputLevel > 0:
-            print("JobId: " + jobId, file=sys.stderr)
-        else:
+        if options.useSeqId:
+            print("Warning: --useSeqId option ignored.")
+        if options.maxJobs:
+            print("Warning: --maxJobs option ignored.")
+
+        jobId = serviceRun(options.email, options.title, params)
+        if options.asyncjob: # Async mode
             print(jobId)
-        time.sleep(pollFreq)
-        getResult(jobId)
+            if outputLevel > 0:
+                print("To check status: python %s --status --jobid %s"
+                      "" % (os.path.basename(__file__), jobId))
+        else:
+            # Sync mode
+            if outputLevel > 0:
+                print("JobId: " + jobId, file=sys.stderr)
+            else:
+                print(jobId)
+            time.sleep(pollFreq)
+            getResult(jobId)
+
 # Get job status
 elif options.jobid and options.status:
     printGetStatus(options.jobid)

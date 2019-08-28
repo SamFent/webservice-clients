@@ -32,6 +32,7 @@ from __future__ import print_function
 import os
 import sys
 import time
+import requests
 import platform
 from xmltramp2 import xmltramp
 from optparse import OptionParser
@@ -55,6 +56,7 @@ except NameError:
 
 # Base URL for service
 baseUrl = u'https://www.ebi.ac.uk/Tools/services/rest/psisearch'
+version = u'2019-07-03 12:51'
 
 # Set interval for checking status
 pollFreq = 3
@@ -69,30 +71,30 @@ numOpts = len(sys.argv)
 parser = OptionParser(add_help_option=False)
 
 # Tool specific options (Try to print all the commands automatically)
-parser.add_option('--matrix', help=('The comparison matrix to be used to score alignments when searching'
+parser.add_option('--matrix', type=str, help=('The comparison matrix to be used to score alignments when searching'
                   'the database'))
-parser.add_option('--gapopen', help=('Penalty taken away from the score when a gap is created in sequence.'
+parser.add_option('--gapopen', type=int, help=('Penalty taken away from the score when a gap is created in sequence.'
                   'Increasing the gap opening penalty will decrease the number of gaps in'
                   'the final alignment.'))
-parser.add_option('--gapext', help=('Penalty taken away from the score for each base or residue in the gap.'
+parser.add_option('--gapext', type=int, help=('Penalty taken away from the score for each base or residue in the gap.'
                   'Increasing the gap extension penalty favours short gaps in the final'
                   'alignment, conversly, decreasing the gap extension penalty favours'
                   'long gaps in the final alignment.'))
-parser.add_option('--expthr', help=('Limits the number of scores and alignments reported based on the'
+parser.add_option('--expthr', type=str, help=('Limits the number of scores and alignments reported based on the'
                   'expectation value. This value is the maximum number of times the match'
                   'is expected to occur by chance.'))
 parser.add_option('--mask', action='store_true', help=('Turn on/off the sequence masking for HOEs in PSSM constructions. This'
                   'option allows you to mask sequence characters beyond the alignment'
                   'region when constructing the PSSM, reducing over-extension errors.'))
-parser.add_option('--psithr', help=('Expectation value threshold for automatic selection of matched'
+parser.add_option('--psithr', type=str, help=('Expectation value threshold for automatic selection of matched'
                   'sequences for inclusion in the PSSM at each iteration.'))
-parser.add_option('--scores', help=('Maximum number of alignment score summaries reported in the result'
+parser.add_option('--scores', type=int, help=('Maximum number of alignment score summaries reported in the result'
                   'output.'))
-parser.add_option('--alignments', help=('Maximum number of alignments reported in the result output.'))
+parser.add_option('--alignments', type=int, help=('Maximum number of alignments reported in the result output.'))
 parser.add_option('--hsps', action='store_true', help=('Turn on/off the display of all significant alignments between query'
                   'and database sequence.'))
-parser.add_option('--scoreformat', help=('Different score formats.'))
-parser.add_option('--filter', help=('Filter regions of low sequence complexity. This can avoid issues with'
+parser.add_option('--scoreformat', type=str, help=('Different score formats.'))
+parser.add_option('--filter', type=str, help=('Filter regions of low sequence complexity. This can avoid issues with'
                   'low complexity sequences where matches are found due to composition'
                   'rather then meaningful sequence similarity. However in some cases'
                   'filtering also masks regions of interest and so should be used with'
@@ -107,21 +109,21 @@ parser.add_option('--annotfeats', action='store_true', help=('Turn on/off annota
                   'has been enabled, select sequences of interest and click to Show'
                   'Alignments. This option also enables a new result tab (Domain'
                   'Diagrams) that highlights domain regions.'))
-parser.add_option('--sequence', help=('The query sequence can be entered directly into this form. The'
+parser.add_option('--sequence', type=str, help=('The query sequence can be entered directly into this form. The'
                   'sequence can be in GCG, FASTA, PIR, NBRF, PHYLIP or UniProtKB/Swiss-'
                   'Prot format. A partially formatted sequence is not accepted. Adding a'
                   'return to the end of the sequence may help certain applications'
                   'understand the input. Note that directly using data from word'
                   'processors may yield unpredictable results as hidden/control'
                   'characters may be present.'))
-parser.add_option('--database', help=('The databases to run the sequence similarity search against. Multiple'
+parser.add_option('--database', type=str, help=('The databases to run the sequence similarity search against. Multiple'
                   'databases can be selected at the same time.'))
-parser.add_option('--previousjobid', help=('The job identifier for the previous PSI-Search iteration.'))
-parser.add_option('--selectedHits', help=('List of identifiers from the hits of the previous iteration to use to'
+parser.add_option('--previousjobid', type=str, help=('The job identifier for the previous PSI-Search iteration.'))
+parser.add_option('--selectedHits', type=str, help=('List of identifiers from the hits of the previous iteration to use to'
                   'construct the search PSSM for this iteration.'))
-parser.add_option('--bdrfile', help=('Boundary file containing boundary information for pre-selected'
+parser.add_option('--bdrfile', type=str, help=('Boundary file containing boundary information for pre-selected'
                   'sequences.Used for hardmask to clean HOEs.'))
-parser.add_option('--cpfile', help=('Checkpoint file from the previous iteration. Must be in ASN.1 Binary'
+parser.add_option('--cpfile', type=str, help=('Checkpoint file from the previous iteration. Must be in ASN.1 Binary'
                   'Format.'))
 # General options
 parser.add_option('-h', '--help', action='store_true', help='Show this help message and exit.')
@@ -129,7 +131,7 @@ parser.add_option('--email', help='E-mail address.')
 parser.add_option('--title', help='Job title.')
 parser.add_option('--outfile', help='File name for results.')
 parser.add_option('--outformat', help='Output format for results.')
-parser.add_option('--async', action='store_true', help='Asynchronous mode.')
+parser.add_option('--asyncjob', action='store_true', help='Asynchronous mode.')
 parser.add_option('--jobid', help='Job identifier.')
 parser.add_option('--polljob', action="store_true", help='Get job result.')
 parser.add_option('--pollFreq', type='int', default=3, help='Poll frequency in seconds (default 3s).')
@@ -137,8 +139,15 @@ parser.add_option('--status', action="store_true", help='Get job status.')
 parser.add_option('--resultTypes', action='store_true', help='Get result types.')
 parser.add_option('--params', action='store_true', help='List input parameters.')
 parser.add_option('--paramDetail', help='Get details for parameter.')
+parser.add_option('--multifasta', action='store_true', help='Treat input as a set of fasta formatted sequences.')
+parser.add_option('--useSeqId', action='store_true', help='Use sequence identifiers for output filenames.'
+                                                          'Only available in multi-fasta and multi-identifier modes.')
+parser.add_option('--maxJobs', type='int', help='Maximum number of concurrent jobs. '
+                                                'Only available in multifasta or list file modes.')
+
 parser.add_option('--quiet', action='store_true', help='Decrease output level.')
 parser.add_option('--verbose', action='store_true', help='Increase output level.')
+parser.add_option('--version', action='store_true', help='Prints out the version of the Client and exit.')
 parser.add_option('--debugLevel', type='int', default=debugLevel, help='Debugging level.')
 parser.add_option('--baseUrl', default=baseUrl, help='Base URL for service.')
 
@@ -161,6 +170,14 @@ if options.pollFreq:
 
 if options.baseUrl:
     baseUrl = options.baseUrl
+if options.multifasta:
+    multifasta = options.multifasta
+
+if options.useSeqId:
+    useSeqId = options.useSeqId
+
+if options.maxJobs:
+    maxJobs = options.maxJobs
 
 
 # Debug print
@@ -174,16 +191,16 @@ def getUserAgent():
     printDebugMessage(u'getUserAgent', u'Begin', 11)
     # Agent string for urllib2 library.
     urllib_agent = u'Python-urllib/%s' % urllib_version
-    clientRevision = u'$Revision: 2018 $'
-    clientVersion = u'0'
-    if len(clientRevision) > 11:
-        clientVersion = clientRevision[11:-2]
+    clientRevision = version
     # Prepend client specific agent string.
+    try:
+        pythonversion = platform.python_version()
+        pythonsys = platform.system()
+    except ValueError:
+        pythonversion, pythonsys = "Unknown", "Unknown"
     user_agent = u'EBI-Sample-Client/%s (%s; Python %s; %s) %s' % (
-        clientVersion, os.path.basename(__file__),
-        platform.python_version(), platform.system(),
-        urllib_agent
-    )
+        clientRevision, os.path.basename(__file__),
+        pythonversion, pythonsys, urllib_agent)
     printDebugMessage(u'getUserAgent', u'user_agent: ' + user_agent, 12)
     printDebugMessage(u'getUserAgent', u'End', 11)
     return user_agent
@@ -215,8 +232,7 @@ def restRequest(url):
         reqH.close()
     # Errors are indicated by HTTP status codes.
     except HTTPError as ex:
-        print(xmltramp.parse(unicode(ex.read(), u'utf-8'))[0][0])
-        quit()
+        result = requests.get(url).content
     printDebugMessage(u'restRequest', u'End', 11)
     return result
 
@@ -301,6 +317,40 @@ def serviceRun(email, title, params):
     printDebugMessage(u'serviceRun', u'jobId: ' + jobId, 2)
     printDebugMessage(u'serviceRun', u'End', 1)
     return jobId
+def multipleServiceRun(email, title, params, useSeqId, maxJobs, outputLevel):
+    seqs = params['sequence']
+    seqs = seqs.split(">")[1:]
+    i = 0
+    j = maxJobs
+    done = 0
+    jobs = []
+    while done < len(seqs):
+        c = 0
+        for seq in seqs[i:j]:
+            c += 1
+            params['sequence'] = ">" + seq
+            if c <= int(maxJobs):
+                jobId = serviceRun(options.email, options.title, params)
+                jobs.append(jobId)
+                if outputLevel > 0:
+                    if useSeqId:
+                        print("Submitting job for: %s" % str(seq.split()[0]))
+                    else:
+                        print("JobId: " + jobId, file=sys.stderr)
+        for k, jobId in enumerate(jobs[:]):
+            if outputLevel > 0:
+                print("JobId: " + jobId, file=sys.stderr)
+            else:
+                print(jobId)
+            if useSeqId:
+                options.outfile = str(seqs[i + k].split()[0])
+            getResult(jobId)
+            done += 1
+            jobs.remove(jobId)
+        i += maxJobs
+        j += maxJobs
+        time.sleep(pollFreq)
+
 
 
 # Get job status
@@ -432,10 +482,15 @@ def getResult(jobId):
                 else:
                     fmode = 'w'
 
-                fh = open(filename, fmode)
-
-                fh.write(result)
-                fh.close()
+                try:
+                    fh = open(filename, fmode)
+                    fh.write(result)
+                    fh.close()
+                except TypeError:
+                    fh.close()
+                    fh = open(filename, "wb")
+                    fh.write(result)
+                    fh.close()
                 if outputLevel > 0:
                     print("Creating result file: " + filename)
     printDebugMessage(u'getResult', u'End', 1)
@@ -524,7 +579,7 @@ Sequence similarity search with PSI-Search.
 
 [General]
   -h, --help            Show this help message and exit.
-  --async               Forces to make an asynchronous query.
+  --asyncjob            Forces to make an asynchronous query.
   --title               Title for job.
   --status              Get job status.
   --resultTypes         Get available result types for job.
@@ -536,6 +591,7 @@ Sequence similarity search with PSI-Search.
   --params              List input parameters.
   --paramDetail         Display details for input parameter.
   --verbose             Increase output.
+  --version             Prints out the version of the Client and exit.
   --quiet               Decrease output.
   --baseUrl             Base URL. Defaults to:
                         https://www.ebi.ac.uk/Tools/services/rest/psisearch
@@ -548,7 +604,7 @@ Synchronous job:
 Asynchronous job:
   Use this if you want to retrieve the results at a later time. The results
   are stored for up to 24 hours.
-  Usage: python psisearch.py --async --email <your@email.com> [options...] <SeqFile|SeqID(s)>
+  Usage: python psisearch.py --asyncjob --email <your@email.com> [options...] <SeqFile|SeqID(s)>
   Returns: jobid
 
 Check status of Asynchronous job:
@@ -580,15 +636,19 @@ elif options.params:
 # Get parameter details
 elif options.paramDetail:
     printGetParameterDetails(options.paramDetail)
+# Print Client version
+elif options.version:
+    print("Revision: %s" % version)
+    sys.exit()
 # Submit job
 elif options.email and not options.jobid:
     params = {}
-    if len(args) == 1:
+    if len(args) == 1 and "true" not in args and "false" not in args:
         if os.path.exists(args[0]):  # Read file into content
             params[u'sequence'] = readFile(args[0])
         else:  # Argument is a sequence id
             params[u'sequence'] = args[0]
-    elif len(args) == 2:
+    elif len(args) == 2 and "true" not in args and "false" not in args:
         if os.path.exists(args[0]) and os.path.exists(args[1]):  # Read file into content
             params[u'asequence'] = readFile(args[0])
             params[u'bsequence'] = readFile(args[1])
@@ -620,13 +680,13 @@ elif options.email and not options.jobid:
     
 
     if not options.gapopen:
-        params['gapopen'] = '11'
+        params['gapopen'] = 11
     if options.gapopen:
         params['gapopen'] = options.gapopen
     
 
     if not options.gapext:
-        params['gapext'] = '1'
+        params['gapext'] = 1
     if options.gapext:
         params['gapext'] = options.gapext
     
@@ -650,13 +710,13 @@ elif options.email and not options.jobid:
     
 
     if not options.scores:
-        params['scores'] = '500'
+        params['scores'] = 500
     if options.scores:
         params['scores'] = options.scores
     
 
     if not options.alignments:
-        params['alignments'] = '500'
+        params['alignments'] = 500
     if options.alignments:
         params['alignments'] = options.alignments
     
@@ -673,6 +733,8 @@ elif options.email and not options.jobid:
         params['scoreformat'] = options.scoreformat
     
 
+    if not options.filter:
+        params['filter'] = 'none'
     if options.filter:
         params['filter'] = options.filter
     
@@ -683,11 +745,8 @@ elif options.email and not options.jobid:
         params['hist'] = options.hist
     
 
-    if options.annotfeats:
-        params['annotfeats'] = 'true'
-    else:
+    if not options.annotfeats:
         params['annotfeats'] = 'false'
-    
     if options.annotfeats:
         params['annotfeats'] = options.annotfeats
     
@@ -710,20 +769,31 @@ elif options.email and not options.jobid:
 
 
     # Submit the job
-    jobId = serviceRun(options.email, options.title, params)
-    if options.async: # Async mode
-        print(jobId)
-        if outputLevel > 0:
-            print("To check status: python %s --status --jobid %s"
-                  "" % (os.path.basename(__file__), jobId))
+    if options.multifasta:
+        multipleServiceRun(options.email, options.title, params,
+                           options.useSeqId, options.maxJobs,
+                           outputLevel)
     else:
-        # Sync mode
-        if outputLevel > 0:
-            print("JobId: " + jobId, file=sys.stderr)
-        else:
+        if options.useSeqId:
+            print("Warning: --useSeqId option ignored.")
+        if options.maxJobs:
+            print("Warning: --maxJobs option ignored.")
+
+        jobId = serviceRun(options.email, options.title, params)
+        if options.asyncjob: # Async mode
             print(jobId)
-        time.sleep(pollFreq)
-        getResult(jobId)
+            if outputLevel > 0:
+                print("To check status: python %s --status --jobid %s"
+                      "" % (os.path.basename(__file__), jobId))
+        else:
+            # Sync mode
+            if outputLevel > 0:
+                print("JobId: " + jobId, file=sys.stderr)
+            else:
+                print(jobId)
+            time.sleep(pollFreq)
+            getResult(jobId)
+
 # Get job status
 elif options.jobid and options.status:
     printGetStatus(options.jobid)

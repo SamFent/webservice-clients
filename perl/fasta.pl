@@ -63,6 +63,8 @@ use Time::HiRes qw(usleep);
 
 # Base URL for service
 my $baseUrl = 'https://www.ebi.ac.uk/Tools/services/rest/fasta';
+#my $baseUrl = 'http://wwwdev.ebi.ac.uk/Tools/services/rest/fasta';
+my $version = '2019-07-03 16:26';
 
 # Set interval for checking status
 my $checkInterval = 3;
@@ -79,7 +81,7 @@ my %params = (
     'debugLevel' => 0,
     'maxJobs'    => 1
 );
-
+my @database;
 # Default parameter values (should get these from the service)
 GetOptions(
     # Tool specific options
@@ -105,7 +107,8 @@ GetOptions(
     'filter=s'        => \$params{'filter'},         # Filter regions of low sequence complexity. This can avoid issues with low complexity sequences where matches are found due to composition rather then meaningful sequence similarity. However in some cases filtering also masks regions of interest and so should be used with caution.
     'transltable=i'   => \$params{'transltable'},    # Query Genetic code to use in translation
     'sequence=s'      => \$params{'sequence'},       # The query sequence can be entered directly into this form. The sequence can be in GCG, FASTA, EMBL (Nucleotide only), GenBank, PIR, NBRF, PHYLIP or UniProtKB/Swiss-Prot (Protein only) format. A partially formatted sequence is not accepted. Adding a return to the end of the sequence may help certain applications understand the input. Note that directly using data from word processors may yield unpredictable results as hidden/control characters may be present.
-    'database=s'      => \$params{'database'},       # The databases to run the sequence similarity search against. Multiple databases can be used at the same time
+    #'database=s'      => \$params{'database'},       # The databases to run the sequence similarity search against. Multiple databases can be used at the same time
+	'database=s%'	  => \@database,
     'ktup=i'          => \$params{'ktup'},           # FASTA uses a rapid word-based lookup strategy to speed the initial phase of the similarity search. The KTUP is used to control the sensitivity of the search. Lower values lead to more sensitive, but slower searches.
     # Generic options
     'email=s'         => \$params{'email'},          # User e-mail address
@@ -114,7 +117,7 @@ GetOptions(
     'outformat=s'     => \$params{'outformat'},      # Output file type
     'jobid=s'         => \$params{'jobid'},          # JobId
     'help|h'          => \$params{'help'},           # Usage help
-    'async'           => \$params{'async'},          # Asynchronous submission
+    'asyncjob'        => \$params{'asyncjob'},       # Asynchronous submission
     'polljob'         => \$params{'polljob'},        # Get results
     'pollFreq=f'      => \$params{'pollFreq'},       # Poll Frequency
     'resultTypes'     => \$params{'resultTypes'},    # Get result types
@@ -126,6 +129,7 @@ GetOptions(
     'maxJobs=i'       => \$params{'maxJobs'},        # Max. parallel jobs
 
     'verbose'         => \$params{'verbose'},        # Increase output level
+    'version'         => \$params{'version'},        # Prints out the version of the Client and exit.
     'quiet'           => \$params{'quiet'},          # Decrease output level
     'debugLevel=i'    => \$params{'debugLevel'},     # Debugging level
     'baseUrl=s'       => \$baseUrl,                  # Base URL for service.
@@ -134,6 +138,7 @@ if ($params{'verbose'}) {$outputLevel++}
 if ($params{'quiet'}) {$outputLevel--}
 if ($params{'pollFreq'}) {$checkInterval = $params{'pollFreq'} * 1000 * 1000}
 if ($params{'baseUrl'}) {$baseUrl = $params{'baseUrl'}}
+$params{"database"} = [@database];
 
 # Debug mode: LWP version
 &print_debug_message('MAIN', 'LWP::VERSION: ' . $LWP::VERSION,
@@ -163,6 +168,7 @@ if (
             || $params{'status'}
             || $params{'params'}
             || $params{'paramDetail'}
+            || $params{'version'}
     )
         && !(defined($ARGV[0]) || defined($params{'sequence'}))
 ) {
@@ -180,6 +186,12 @@ elsif ($params{'params'}) {
 # Get parameter details
 elsif ($params{'paramDetail'}) {
     &print_param_details($params{'paramDetail'});
+}
+
+# Print Client version
+elsif ($params{'version'}) {
+  print STDOUT 'Revision: ' . $version, "\n";
+  exit(1);
 }
 
 # Job status
@@ -249,7 +261,7 @@ sub rest_user_agent() {
     my $ua = LWP::UserAgent->new();
     # Set 'User-Agent' HTTP header to identifiy the client.
     my $revisionNumber = 0;
-    $revisionNumber = $1 if ('$Revision$' =~ m/(\d+)/);
+    $revisionNumber = "Revision: " . $version;
     $ua->agent("EBI-Sample-Client/$revisionNumber ($scriptName; $OSNAME) " . $ua->agent());
     # Configure HTTP proxy support from environment.
     $ua->env_proxy;
@@ -286,7 +298,7 @@ sub rest_error() {
         elsif ($contentdata =~ m/<description>([^<]+)<\/description>/) {
             $error_message = $1;
         }
-        die 'http status: ' . $response->code . ' ' . $response->message . '  ' . $error_message;
+        # die 'http status: ' . $response->code . ' ' . $response->message . '  ' . $error_message;
     }
     print_debug_message('rest_error', 'End', 21);
 }
@@ -690,7 +702,7 @@ sub submit_job {
     my $jobid = &rest_run($params{'email'}, $params{'title'}, \%params);
 
     # Asynchronous submission.
-    if (defined($params{'async'})) {
+    if (defined($params{'asyncjob'})) {
         print STDOUT $jobid, "\n";
         if ($outputLevel > 0) {
             print STDERR
@@ -993,22 +1005,31 @@ sub load_params {
     }
 
     if (!$params{'scores'}) {
-        $params{'scores'} = '50'
+        $params{'scores'} = 50
     }
 
     if (!$params{'alignments'}) {
-        $params{'alignments'} = '50'
+        $params{'alignments'} = 50
     }
 
-    if ($params{'annotfeats'}) {
-        $params{'annotfeats'} = 'true';
+    if (!$params{'scoreformat'}) {
+        $params{'scoreformat'} = 'default'
     }
-    else {
-        $params{'annotfeats'} = 'false';
+
+    if (!$params{'stats'}) {
+        $params{'stats'} = '1'
+    }
+
+    if (!$params{'annotfeats'}) {
+        $params{'annotfeats'} = 'false'
+    }
+
+    if (!$params{'filter'}) {
+        $params{'filter'} = 'none'
     }
 
     if (!$params{'transltable'}) {
-        $params{'transltable'} = '1'
+        $params{'transltable'} = 1
     }
 
     print_debug_message('load_params', 'End', 1);
@@ -1111,7 +1132,7 @@ sub get_results {
             @multResultTypes = split(',', $params{'outformat'});
         }
         else {
-            @multResultTypes[0] = $params{'outformat'};
+            $multResultTypes[0] = $params{'outformat'};
         }
         # check if the provided formats are recognised
         foreach my $inputType (@multResultTypes) {
@@ -1333,7 +1354,7 @@ Sequence similarity search with FASTA.
 
 [General]
   -h, --help            Show this help message and exit.
-  --async               Forces to make an asynchronous query.
+  --asyncjob            Forces to make an asynchronous query.
   --title               Title for job.
   --status              Get job status.
   --resultTypes         Get available result types for job.
@@ -1351,6 +1372,7 @@ Sequence similarity search with FASTA.
   --paramDetail         Display details for input parameter.
   --quiet               Decrease output.
   --verbose             Increase output.
+  --version             Prints out the version of the Client and exit.
   --baseUrl             Base URL. Defaults to:
                         https://www.ebi.ac.uk/Tools/services/rest/fasta
 
@@ -1362,7 +1384,7 @@ Synchronous job:
 Asynchronous job:
   Use this if you want to retrieve the results at a later time. The results
   are stored for up to 24 hours.
-  Usage: perl $scriptName --async --email <your\@email.com> [options...] <SeqFile|SeqID(s)>
+  Usage: perl $scriptName --asyncjob --email <your\@email.com> [options...] <SeqFile|SeqID(s)>
   Returns: jobid
 
 Check status of Asynchronous job:

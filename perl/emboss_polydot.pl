@@ -63,6 +63,7 @@ use Time::HiRes qw(usleep);
 
 # Base URL for service
 my $baseUrl = 'https://www.ebi.ac.uk/Tools/services/rest/emboss_polydot';
+my $version = '2019-07-03 16:26';
 
 # Set interval for checking status
 my $checkInterval = 3;
@@ -85,7 +86,7 @@ GetOptions(
     # Tool specific options
     'stype=s'         => \$params{'stype'},          # Defines the type of the sequences to be aligned
     'sequence=s'      => \$params{'sequence'},       # Two or more aligned sequences are required. There is currently a sequence input limit of 500 sequences and 1MB of data.
-    'wordsize=i'      => \$params{'wordsize'},       # Word size.
+    'wordsize=i'      => \$params{'wordsize'},       # Word size
     'gap=i'           => \$params{'gap'},            # This specifies the size of the gap that is used to separate the individual dotplots in the display. The size is measured in residues, as displayed in the output.
     'boxit'           => \$params{'boxit'},          # Draw a box around dotplot.
     # Generic options
@@ -95,7 +96,7 @@ GetOptions(
     'outformat=s'     => \$params{'outformat'},      # Output file type
     'jobid=s'         => \$params{'jobid'},          # JobId
     'help|h'          => \$params{'help'},           # Usage help
-    'async'           => \$params{'async'},          # Asynchronous submission
+    'asyncjob'        => \$params{'asyncjob'},       # Asynchronous submission
     'polljob'         => \$params{'polljob'},        # Get results
     'pollFreq=f'      => \$params{'pollFreq'},       # Poll Frequency
     'resultTypes'     => \$params{'resultTypes'},    # Get result types
@@ -103,6 +104,7 @@ GetOptions(
     'params'          => \$params{'params'},         # List input parameters
     'paramDetail=s'   => \$params{'paramDetail'},    # Get details for parameter
     'verbose'         => \$params{'verbose'},        # Increase output level
+    'version'         => \$params{'version'},        # Prints out the version of the Client and exit.
     'quiet'           => \$params{'quiet'},          # Decrease output level
     'debugLevel=i'    => \$params{'debugLevel'},     # Debugging level
     'baseUrl=s'       => \$baseUrl,                  # Base URL for service.
@@ -140,6 +142,7 @@ if (
             || $params{'status'}
             || $params{'params'}
             || $params{'paramDetail'}
+            || $params{'version'}
     )
         && !(defined($ARGV[0]) || defined($params{'sequence'}))
 ) {
@@ -157,6 +160,12 @@ elsif ($params{'params'}) {
 # Get parameter details
 elsif ($params{'paramDetail'}) {
     &print_param_details($params{'paramDetail'});
+}
+
+# Print Client version
+elsif ($params{'version'}) {
+  print STDOUT 'Revision: ' . $version, "\n";
+  exit(1);
 }
 
 # Job status
@@ -226,7 +235,7 @@ sub rest_user_agent() {
     my $ua = LWP::UserAgent->new();
     # Set 'User-Agent' HTTP header to identifiy the client.
     my $revisionNumber = 0;
-    $revisionNumber = $1 if ('$Revision$' =~ m/(\d+)/);
+    $revisionNumber = "Revision: " . $version;
     $ua->agent("EBI-Sample-Client/$revisionNumber ($scriptName; $OSNAME) " . $ua->agent());
     # Configure HTTP proxy support from environment.
     $ua->env_proxy;
@@ -263,7 +272,7 @@ sub rest_error() {
         elsif ($contentdata =~ m/<description>([^<]+)<\/description>/) {
             $error_message = $1;
         }
-        die 'http status: ' . $response->code . ' ' . $response->message . '  ' . $error_message;
+        # die 'http status: ' . $response->code . ' ' . $response->message . '  ' . $error_message;
     }
     print_debug_message('rest_error', 'End', 21);
 }
@@ -666,7 +675,7 @@ sub submit_job {
     my $jobid = &rest_run($params{'email'}, $params{'title'}, \%params);
 
     # Asynchronous submission.
-    if (defined($params{'async'})) {
+    if (defined($params{'asyncjob'})) {
         print STDOUT $jobid, "\n";
         if ($outputLevel > 0) {
             print STDERR
@@ -830,7 +839,7 @@ sub get_results {
             @multResultTypes = split(',', $params{'outformat'});
         }
         else {
-            @multResultTypes[0] = $params{'outformat'};
+            $multResultTypes[0] = $params{'outformat'};
         }
         # check if the provided formats are recognised
         foreach my $inputType (@multResultTypes) {
@@ -977,7 +986,7 @@ Sequence statistics and plots with polydot.
 
 [General]
   -h, --help            Show this help message and exit.
-  --async               Forces to make an asynchronous query.
+  --asyncjob            Forces to make an asynchronous query.
   --title               Title for job.
   --status              Get job status.
   --resultTypes         Get available result types for job.
@@ -990,6 +999,7 @@ Sequence statistics and plots with polydot.
   --paramDetail         Display details for input parameter.
   --quiet               Decrease output.
   --verbose             Increase output.
+  --version             Prints out the version of the Client and exit.
   --baseUrl             Base URL. Defaults to:
                         https://www.ebi.ac.uk/Tools/services/rest/emboss_polydot
 
@@ -1001,7 +1011,7 @@ Synchronous job:
 Asynchronous job:
   Use this if you want to retrieve the results at a later time. The results
   are stored for up to 24 hours.
-  Usage: perl $scriptName --async --email <your\@email.com> [options...] <SeqFile|SeqID(s)>
+  Usage: perl $scriptName --asyncjob --email <your\@email.com> [options...] <SeqFile|SeqID(s)>
   Returns: jobid
 
 Check status of Asynchronous job:

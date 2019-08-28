@@ -32,6 +32,7 @@ from __future__ import print_function
 import os
 import sys
 import time
+import requests
 import platform
 from xmltramp2 import xmltramp
 from optparse import OptionParser
@@ -55,6 +56,7 @@ except NameError:
 
 # Base URL for service
 baseUrl = u'https://www.ebi.ac.uk/Tools/services/rest/seqcksum'
+version = u'2019-07-03 12:51'
 
 # Set interval for checking status
 pollFreq = 3
@@ -69,10 +71,10 @@ numOpts = len(sys.argv)
 parser = OptionParser(add_help_option=False)
 
 # Tool specific options (Try to print all the commands automatically)
-parser.add_option('--stype', help=('Indicates if the sequences are protein or nucleotide (DNA/RNA).'))
-parser.add_option('--cksmethod', help=('A number of different checksum methods for sequences are launched.'))
+parser.add_option('--stype', type=str, help=('Indicates if the sequences are protein or nucleotide (DNA/RNA).'))
+parser.add_option('--cksmethod', type=str, help=('A number of different checksum methods for sequences are launched.'))
 parser.add_option('--length', action='store_true', help=('Turn on/off the display of asequence length.'))
-parser.add_option('--sequence', help=('Three or more sequences to be aligned can be entered directly into'
+parser.add_option('--sequence', type=str, help=('Three or more sequences to be aligned can be entered directly into'
                   'this form. Sequences can be in GCG, FASTA, EMBL (Nucleotide only),'
                   'GenBank, PIR, NBRF, PHYLIP or UniProtKB/Swiss-Prot (Protein only)'
                   'format. Partially formatted sequences are not accepted. Adding a'
@@ -86,7 +88,7 @@ parser.add_option('--email', help='E-mail address.')
 parser.add_option('--title', help='Job title.')
 parser.add_option('--outfile', help='File name for results.')
 parser.add_option('--outformat', help='Output format for results.')
-parser.add_option('--async', action='store_true', help='Asynchronous mode.')
+parser.add_option('--asyncjob', action='store_true', help='Asynchronous mode.')
 parser.add_option('--jobid', help='Job identifier.')
 parser.add_option('--polljob', action="store_true", help='Get job result.')
 parser.add_option('--pollFreq', type='int', default=3, help='Poll frequency in seconds (default 3s).')
@@ -96,6 +98,7 @@ parser.add_option('--params', action='store_true', help='List input parameters.'
 parser.add_option('--paramDetail', help='Get details for parameter.')
 parser.add_option('--quiet', action='store_true', help='Decrease output level.')
 parser.add_option('--verbose', action='store_true', help='Increase output level.')
+parser.add_option('--version', action='store_true', help='Prints out the version of the Client and exit.')
 parser.add_option('--debugLevel', type='int', default=debugLevel, help='Debugging level.')
 parser.add_option('--baseUrl', default=baseUrl, help='Base URL for service.')
 
@@ -131,16 +134,16 @@ def getUserAgent():
     printDebugMessage(u'getUserAgent', u'Begin', 11)
     # Agent string for urllib2 library.
     urllib_agent = u'Python-urllib/%s' % urllib_version
-    clientRevision = u'$Revision: 2018 $'
-    clientVersion = u'0'
-    if len(clientRevision) > 11:
-        clientVersion = clientRevision[11:-2]
+    clientRevision = version
     # Prepend client specific agent string.
+    try:
+        pythonversion = platform.python_version()
+        pythonsys = platform.system()
+    except ValueError:
+        pythonversion, pythonsys = "Unknown", "Unknown"
     user_agent = u'EBI-Sample-Client/%s (%s; Python %s; %s) %s' % (
-        clientVersion, os.path.basename(__file__),
-        platform.python_version(), platform.system(),
-        urllib_agent
-    )
+        clientRevision, os.path.basename(__file__),
+        pythonversion, pythonsys, urllib_agent)
     printDebugMessage(u'getUserAgent', u'user_agent: ' + user_agent, 12)
     printDebugMessage(u'getUserAgent', u'End', 11)
     return user_agent
@@ -172,8 +175,7 @@ def restRequest(url):
         reqH.close()
     # Errors are indicated by HTTP status codes.
     except HTTPError as ex:
-        print(xmltramp.parse(unicode(ex.read(), u'utf-8'))[0][0])
-        quit()
+        result = requests.get(url).content
     printDebugMessage(u'restRequest', u'End', 11)
     return result
 
@@ -389,10 +391,15 @@ def getResult(jobId):
                 else:
                     fmode = 'w'
 
-                fh = open(filename, fmode)
-
-                fh.write(result)
-                fh.close()
+                try:
+                    fh = open(filename, fmode)
+                    fh.write(result)
+                    fh.close()
+                except TypeError:
+                    fh.close()
+                    fh = open(filename, "wb")
+                    fh.write(result)
+                    fh.close()
                 if outputLevel > 0:
                     print("Creating result file: " + filename)
     printDebugMessage(u'getResult', u'End', 1)
@@ -435,7 +442,7 @@ Sequenc operations with seqcksum.
 
 [General]
   -h, --help            Show this help message and exit.
-  --async               Forces to make an asynchronous query.
+  --asyncjob            Forces to make an asynchronous query.
   --title               Title for job.
   --status              Get job status.
   --resultTypes         Get available result types for job.
@@ -447,6 +454,7 @@ Sequenc operations with seqcksum.
   --params              List input parameters.
   --paramDetail         Display details for input parameter.
   --verbose             Increase output.
+  --version             Prints out the version of the Client and exit.
   --quiet               Decrease output.
   --baseUrl             Base URL. Defaults to:
                         https://www.ebi.ac.uk/Tools/services/rest/seqcksum
@@ -459,7 +467,7 @@ Synchronous job:
 Asynchronous job:
   Use this if you want to retrieve the results at a later time. The results
   are stored for up to 24 hours.
-  Usage: python seqcksum.py --async --email <your@email.com> [options...] <SeqFile|SeqID(s)>
+  Usage: python seqcksum.py --asyncjob --email <your@email.com> [options...] <SeqFile|SeqID(s)>
   Returns: jobid
 
 Check status of Asynchronous job:
@@ -491,15 +499,19 @@ elif options.params:
 # Get parameter details
 elif options.paramDetail:
     printGetParameterDetails(options.paramDetail)
+# Print Client version
+elif options.version:
+    print("Revision: %s" % version)
+    sys.exit()
 # Submit job
 elif options.email and not options.jobid:
     params = {}
-    if len(args) == 1:
+    if len(args) == 1 and "true" not in args and "false" not in args:
         if os.path.exists(args[0]):  # Read file into content
             params[u'sequence'] = readFile(args[0])
         else:  # Argument is a sequence id
             params[u'sequence'] = args[0]
-    elif len(args) == 2:
+    elif len(args) == 2 and "true" not in args and "false" not in args:
         if os.path.exists(args[0]) and os.path.exists(args[1]):  # Read file into content
             params[u'asequence'] = readFile(args[0])
             params[u'bsequence'] = readFile(args[1])
@@ -537,7 +549,7 @@ elif options.email and not options.jobid:
 
     # Submit the job
     jobId = serviceRun(options.email, options.title, params)
-    if options.async: # Async mode
+    if options.asyncjob: # Async mode
         print(jobId)
         if outputLevel > 0:
             print("To check status: python %s --status --jobid %s"

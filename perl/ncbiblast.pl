@@ -63,6 +63,7 @@ use Time::HiRes qw(usleep);
 
 # Base URL for service
 my $baseUrl = 'https://www.ebi.ac.uk/Tools/services/rest/ncbiblast';
+my $version = '2019-07-03 16:26';
 
 # Set interval for checking status
 my $checkInterval = 3;
@@ -96,6 +97,7 @@ GetOptions(
     'filter=s'        => \$params{'filter'},         # Filter regions of low sequence complexity. This can avoid issues with low complexity sequences where matches are found due to composition rather than meaningful sequence similarity. However in some cases filtering also masks regions of interest and so should be used with caution.
     'seqrange=s'      => \$params{'seqrange'},       # Specify a range or section of the input sequence to use in the search. Example: Specifying '34-89' in an input sequence of total length 100, will tell BLAST to only use residues 34 to 89, inclusive.
     'gapalign'        => \$params{'gapalign'},       # This is a true/false setting that tells the program the perform optimised alignments within regions involving gaps. If set to true, the program will perform an alignment using gaps. Otherwise, if it is set to false, it will report only individual HSP where two sequence match each other, and thus will not produce alignments with gaps.
+    'wordsize=i'      => \$params{'wordsize'},       # Word size for wordfinder algorithm
     'compstats=s'     => \$params{'compstats'},      # Use composition-based statistics.
     'align=i'         => \$params{'align'},          # Formating for the alignments
     'transltable=i'   => \$params{'transltable'},    # Query Genetic code to use in translation
@@ -109,7 +111,7 @@ GetOptions(
     'outformat=s'     => \$params{'outformat'},      # Output file type
     'jobid=s'         => \$params{'jobid'},          # JobId
     'help|h'          => \$params{'help'},           # Usage help
-    'async'           => \$params{'async'},          # Asynchronous submission
+    'asyncjob'        => \$params{'asyncjob'},       # Asynchronous submission
     'polljob'         => \$params{'polljob'},        # Get results
     'pollFreq=f'      => \$params{'pollFreq'},       # Poll Frequency
     'resultTypes'     => \$params{'resultTypes'},    # Get result types
@@ -121,6 +123,7 @@ GetOptions(
     'maxJobs=i'       => \$params{'maxJobs'},        # Max. parallel jobs
 
     'verbose'         => \$params{'verbose'},        # Increase output level
+    'version'         => \$params{'version'},        # Prints out the version of the Client and exit.
     'quiet'           => \$params{'quiet'},          # Decrease output level
     'debugLevel=i'    => \$params{'debugLevel'},     # Debugging level
     'baseUrl=s'       => \$baseUrl,                  # Base URL for service.
@@ -158,6 +161,7 @@ if (
             || $params{'status'}
             || $params{'params'}
             || $params{'paramDetail'}
+            || $params{'version'}
     )
         && !(defined($ARGV[0]) || defined($params{'sequence'}))
 ) {
@@ -175,6 +179,12 @@ elsif ($params{'params'}) {
 # Get parameter details
 elsif ($params{'paramDetail'}) {
     &print_param_details($params{'paramDetail'});
+}
+
+# Print Client version
+elsif ($params{'version'}) {
+  print STDOUT 'Revision: ' . $version, "\n";
+  exit(1);
 }
 
 # Job status
@@ -244,7 +254,7 @@ sub rest_user_agent() {
     my $ua = LWP::UserAgent->new();
     # Set 'User-Agent' HTTP header to identifiy the client.
     my $revisionNumber = 0;
-    $revisionNumber = $1 if ('$Revision$' =~ m/(\d+)/);
+    $revisionNumber = "Revision: " . $version;
     $ua->agent("EBI-Sample-Client/$revisionNumber ($scriptName; $OSNAME) " . $ua->agent());
     # Configure HTTP proxy support from environment.
     $ua->env_proxy;
@@ -281,7 +291,7 @@ sub rest_error() {
         elsif ($contentdata =~ m/<description>([^<]+)<\/description>/) {
             $error_message = $1;
         }
-        die 'http status: ' . $response->code . ' ' . $response->message . '  ' . $error_message;
+        # die 'http status: ' . $response->code . ' ' . $response->message . '  ' . $error_message;
     }
     print_debug_message('rest_error', 'End', 21);
 }
@@ -685,7 +695,7 @@ sub submit_job {
     my $jobid = &rest_run($params{'email'}, $params{'title'}, \%params);
 
     # Asynchronous submission.
-    if (defined($params{'async'})) {
+    if (defined($params{'asyncjob'})) {
         print STDOUT $jobid, "\n";
         if ($outputLevel > 0) {
             print STDERR
@@ -998,21 +1008,21 @@ sub load_params {
     }
     if ($params{'stype'} eq 'nucleotide') {
         if (!$params{'matrix'}) {
-            $params{'matrix'} = 'BLOSUM62'
+            $params{'matrix'} = 'NONE'
         }
     }
     if ($params{'stype'} eq 'vector') {
         if (!$params{'matrix'}) {
-            $params{'matrix'} = 'BLOSUM62'
+            $params{'matrix'} = 'NONE'
         }
     }
 
     if (!$params{'alignments'}) {
-        $params{'alignments'} = '50'
+        $params{'alignments'} = 50
     }
 
     if (!$params{'scores'}) {
-        $params{'scores'} = '50'
+        $params{'scores'} = 50
     }
 
     if (!$params{'exp'}) {
@@ -1020,15 +1030,26 @@ sub load_params {
     }
 
     if (!$params{'dropoff'}) {
-        $params{'dropoff'} = '0'
+        $params{'dropoff'} = 0
+    }
+
+    if ($params{'stype'} eq 'nucleotide') {
+        if (!$params{'match_scores'}) {
+            $params{'match_scores'} = '1,-3'
+        }
+    }
+    if ($params{'stype'} eq 'vector') {
+        if (!$params{'match_scores'}) {
+            $params{'match_scores'} = '1,-3'
+        }
     }
 
     if (!$params{'gapopen'}) {
-        $params{'gapopen'} = '-1'
+        $params{'gapopen'} = -1
     }
 
     if (!$params{'gapext'}) {
-        $params{'gapext'} = '-1'
+        $params{'gapext'} = -1
     }
 
     if ($params{'stype'} eq 'protein') {
@@ -1047,15 +1068,20 @@ sub load_params {
         }
     }
 
-    if ($params{'gapalign'}) {
-        $params{'gapalign'} = 'true';
+    if (!$params{'gapalign'}) {
+        $params{'gapalign'} = 'true'
     }
-    else {
-        $params{'gapalign'} = 'false';
+
+    if (!$params{'compstats'}) {
+        $params{'compstats'} = 'F'
+    }
+
+    if (!$params{'align'}) {
+        $params{'align'} = 0
     }
 
     if (!$params{'transltable'}) {
-        $params{'transltable'} = '1'
+        $params{'transltable'} = 1
     }
 
     print_debug_message('load_params', 'End', 1);
@@ -1158,7 +1184,7 @@ sub get_results {
             @multResultTypes = split(',', $params{'outformat'});
         }
         else {
-            @multResultTypes[0] = $params{'outformat'};
+            $multResultTypes[0] = $params{'outformat'};
         }
         # check if the provided formats are recognised
         foreach my $inputType (@multResultTypes) {
@@ -1344,13 +1370,14 @@ Sequence similarity search with NCBI Blast.
                         gaps. Otherwise, if it is set to false, it will report only
                         individual HSP where two sequence match each other, and thus
                         will not produce alignments with gaps.
+  --wordsize            Word size for wordfinder algorithm.
   --compstats           Use composition-based statistics.
   --align               Formating for the alignments.
   --transltable         Query Genetic code to use in translation.
 
 [General]
   -h, --help            Show this help message and exit.
-  --async               Forces to make an asynchronous query.
+  --asyncjob            Forces to make an asynchronous query.
   --title               Title for job.
   --status              Get job status.
   --resultTypes         Get available result types for job.
@@ -1368,6 +1395,7 @@ Sequence similarity search with NCBI Blast.
   --paramDetail         Display details for input parameter.
   --quiet               Decrease output.
   --verbose             Increase output.
+  --version             Prints out the version of the Client and exit.
   --baseUrl             Base URL. Defaults to:
                         https://www.ebi.ac.uk/Tools/services/rest/ncbiblast
 
@@ -1379,7 +1407,7 @@ Synchronous job:
 Asynchronous job:
   Use this if you want to retrieve the results at a later time. The results
   are stored for up to 24 hours.
-  Usage: perl $scriptName --async --email <your\@email.com> [options...] <SeqFile|SeqID(s)>
+  Usage: perl $scriptName --asyncjob --email <your\@email.com> [options...] <SeqFile|SeqID(s)>
   Returns: jobid
 
 Check status of Asynchronous job:

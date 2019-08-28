@@ -32,6 +32,7 @@ from __future__ import print_function
 import os
 import sys
 import time
+import requests
 import platform
 from xmltramp2 import xmltramp
 from optparse import OptionParser
@@ -55,6 +56,7 @@ except NameError:
 
 # Base URL for service
 baseUrl = u'https://www.ebi.ac.uk/Tools/services/rest/fastm'
+version = u'2019-07-03 12:51'
 
 # Set interval for checking status
 pollFreq = 3
@@ -69,27 +71,27 @@ numOpts = len(sys.argv)
 parser = OptionParser(add_help_option=False)
 
 # Tool specific options (Try to print all the commands automatically)
-parser.add_option('--program', help=('The FASTA program to be used for the Sequence Similarity Search'))
-parser.add_option('--stype', help=('Indicates if the query sequence is protein, DNA or RNA. Used to force'
+parser.add_option('--program', type=str, help=('The FASTA program to be used for the Sequence Similarity Search'))
+parser.add_option('--stype', type=str, help=('Indicates if the query sequence is protein, DNA or RNA. Used to force'
                   'FASTA to interpret the input sequence as specified type of sequence'
                   '(via. the -p, -n or -U options), this prevents issues when using'
                   'nucleotide sequences that contain many ambiguous residues.'))
-parser.add_option('--matrix', help=('The comparison matrix to be used to score alignments when searching'
+parser.add_option('--matrix', type=str, help=('The comparison matrix to be used to score alignments when searching'
                   'the database'))
-parser.add_option('--match_scores', help=('Specify match/mismatch scores for DNA comparisons. The default is'
+parser.add_option('--match_scores', type=str, help=('Specify match/mismatch scores for DNA comparisons. The default is'
                   '+5/-4. +3/-2 can perform better in some cases.'))
-parser.add_option('--gapopen', help=('Score for the first residue in a gap.'))
-parser.add_option('--gapext', help=('Score for each additional residue in a gap.'))
+parser.add_option('--gapopen', type=int, help=('Score for the first residue in a gap.'))
+parser.add_option('--gapext', type=int, help=('Score for each additional residue in a gap.'))
 parser.add_option('--hsps', action='store_true', help=('Turn on/off the display of all significant alignments between query'
                   'and library sequence.'))
-parser.add_option('--expupperlim', help=('Limits the number of scores and alignments reported based on the'
+parser.add_option('--expupperlim', type=str, help=('Limits the number of scores and alignments reported based on the'
                   'expectation value. This is the maximum number of times the match is'
                   'expected to occur by chance.'))
-parser.add_option('--explowlim', help=('Limit the number of scores and alignments reported based on the'
+parser.add_option('--explowlim', type=str, help=('Limit the number of scores and alignments reported based on the'
                   'expectation value. This is the minimum number of times the match is'
                   'expected to occur by chance. This allows closely related matches to be'
                   'excluded from the result in favor of more distant relationships.'))
-parser.add_option('--strand', help=('For nucleotide sequences specify the sequence strand to be used for'
+parser.add_option('--strand', type=str, help=('For nucleotide sequences specify the sequence strand to be used for'
                   'the search. By default both upper (provided) and lower (reverse'
                   'complement of provided) strands are used, for single stranded'
                   'sequences searching with only the upper or lower strand may provide'
@@ -97,25 +99,25 @@ parser.add_option('--strand', help=('For nucleotide sequences specify the sequen
 parser.add_option('--hist', action='store_true', help=('Turn on/off the histogram in the FASTA result. The histogram gives a'
                   'qualitative view of how well the statistical theory fits the'
                   'similarity scores calculated by the program.'))
-parser.add_option('--scores', help=('Maximum number of match score summaries reported in the result output.'))
-parser.add_option('--alignments', help=('Maximum number of match alignments reported in the result output.'))
-parser.add_option('--scoreformat', help=('Different score report formats.'))
-parser.add_option('--stats', help=('The statistical routines assume that the library contains a large'
+parser.add_option('--scores', type=int, help=('Maximum number of match score summaries reported in the result output.'))
+parser.add_option('--alignments', type=int, help=('Maximum number of match alignments reported in the result output.'))
+parser.add_option('--scoreformat', type=str, help=('Different score report formats.'))
+parser.add_option('--stats', type=str, help=('The statistical routines assume that the library contains a large'
                   'sample of unrelated sequences. Options to select what method to use'
                   'include regression, maximum likelihood estimates, shuffles, or'
                   'combinations of these.'))
-parser.add_option('--seqrange', help=('Specify a range or section of the input sequence to use in the search.'
+parser.add_option('--seqrange', type=str, help=('Specify a range or section of the input sequence to use in the search.'
                   'Example: Specifying 34-89 in an input sequence of total length 100,'
                   'will tell FASTA to only use residues 34 to 89, inclusive.'))
-parser.add_option('--dbrange', help=('Specify the sizes of the sequences in a database to search against.'
+parser.add_option('--dbrange', type=str, help=('Specify the sizes of the sequences in a database to search against.'
                   'For example: 100-250 will search all sequences in a database with'
                   'length between 100 and 250 residues, inclusive.'))
-parser.add_option('--filter', help=('Filter regions of low sequence complexity. This can avoid issues with'
+parser.add_option('--filter', type=str, help=('Filter regions of low sequence complexity. This can avoid issues with'
                   'low complexity sequences where matches are found due to composition'
                   'rather then meaningful sequence similarity. However in some cases'
                   'filtering also masks regions of interest and so should be used with'
                   'caution.'))
-parser.add_option('--sequence', help=('The input set of peptide or nucleotide sequence fragments are'
+parser.add_option('--sequence', type=str, help=('The input set of peptide or nucleotide sequence fragments are'
                   'described using a modified fasta sequence format. This comprises a'
                   'fasta header line with an identifier for the set of sequences and'
                   'optionally a description, followed by the individual sequences each'
@@ -124,9 +126,9 @@ parser.add_option('--sequence', help=('The input set of peptide or nucleotide se
                   'may help certain applications understand the input. Note that directly'
                   'using data from word processors may yield unpredictable results as'
                   'hidden/control characters may be present.'))
-parser.add_option('--database', help=('The databases to run the sequence similarity search against. Multiple'
+parser.add_option('--database', type=str, help=('The databases to run the sequence similarity search against. Multiple'
                   'databases can be used at the same time'))
-parser.add_option('--ktup', help=('FASTA uses a rapid word-based lookup strategy to speed the initial'
+parser.add_option('--ktup', type=int, help=('FASTA uses a rapid word-based lookup strategy to speed the initial'
                   'phase of the similarity search. The KTUP is used to control the'
                   'sensitivity of the search. Lower values lead to more sensitive, but'
                   'slower searches.'))
@@ -136,7 +138,7 @@ parser.add_option('--email', help='E-mail address.')
 parser.add_option('--title', help='Job title.')
 parser.add_option('--outfile', help='File name for results.')
 parser.add_option('--outformat', help='Output format for results.')
-parser.add_option('--async', action='store_true', help='Asynchronous mode.')
+parser.add_option('--asyncjob', action='store_true', help='Asynchronous mode.')
 parser.add_option('--jobid', help='Job identifier.')
 parser.add_option('--polljob', action="store_true", help='Get job result.')
 parser.add_option('--pollFreq', type='int', default=3, help='Poll frequency in seconds (default 3s).')
@@ -144,8 +146,15 @@ parser.add_option('--status', action="store_true", help='Get job status.')
 parser.add_option('--resultTypes', action='store_true', help='Get result types.')
 parser.add_option('--params', action='store_true', help='List input parameters.')
 parser.add_option('--paramDetail', help='Get details for parameter.')
+parser.add_option('--multifasta', action='store_true', help='Treat input as a set of fasta formatted sequences.')
+parser.add_option('--useSeqId', action='store_true', help='Use sequence identifiers for output filenames.'
+                                                          'Only available in multi-fasta and multi-identifier modes.')
+parser.add_option('--maxJobs', type='int', help='Maximum number of concurrent jobs. '
+                                                'Only available in multifasta or list file modes.')
+
 parser.add_option('--quiet', action='store_true', help='Decrease output level.')
 parser.add_option('--verbose', action='store_true', help='Increase output level.')
+parser.add_option('--version', action='store_true', help='Prints out the version of the Client and exit.')
 parser.add_option('--debugLevel', type='int', default=debugLevel, help='Debugging level.')
 parser.add_option('--baseUrl', default=baseUrl, help='Base URL for service.')
 
@@ -168,6 +177,14 @@ if options.pollFreq:
 
 if options.baseUrl:
     baseUrl = options.baseUrl
+if options.multifasta:
+    multifasta = options.multifasta
+
+if options.useSeqId:
+    useSeqId = options.useSeqId
+
+if options.maxJobs:
+    maxJobs = options.maxJobs
 
 
 # Debug print
@@ -181,16 +198,16 @@ def getUserAgent():
     printDebugMessage(u'getUserAgent', u'Begin', 11)
     # Agent string for urllib2 library.
     urllib_agent = u'Python-urllib/%s' % urllib_version
-    clientRevision = u'$Revision: 2018 $'
-    clientVersion = u'0'
-    if len(clientRevision) > 11:
-        clientVersion = clientRevision[11:-2]
+    clientRevision = version
     # Prepend client specific agent string.
+    try:
+        pythonversion = platform.python_version()
+        pythonsys = platform.system()
+    except ValueError:
+        pythonversion, pythonsys = "Unknown", "Unknown"
     user_agent = u'EBI-Sample-Client/%s (%s; Python %s; %s) %s' % (
-        clientVersion, os.path.basename(__file__),
-        platform.python_version(), platform.system(),
-        urllib_agent
-    )
+        clientRevision, os.path.basename(__file__),
+        pythonversion, pythonsys, urllib_agent)
     printDebugMessage(u'getUserAgent', u'user_agent: ' + user_agent, 12)
     printDebugMessage(u'getUserAgent', u'End', 11)
     return user_agent
@@ -222,8 +239,7 @@ def restRequest(url):
         reqH.close()
     # Errors are indicated by HTTP status codes.
     except HTTPError as ex:
-        print(xmltramp.parse(unicode(ex.read(), u'utf-8'))[0][0])
-        quit()
+        result = requests.get(url).content
     printDebugMessage(u'restRequest', u'End', 11)
     return result
 
@@ -308,6 +324,40 @@ def serviceRun(email, title, params):
     printDebugMessage(u'serviceRun', u'jobId: ' + jobId, 2)
     printDebugMessage(u'serviceRun', u'End', 1)
     return jobId
+def multipleServiceRun(email, title, params, useSeqId, maxJobs, outputLevel):
+    seqs = params['sequence']
+    seqs = seqs.split(">")[1:]
+    i = 0
+    j = maxJobs
+    done = 0
+    jobs = []
+    while done < len(seqs):
+        c = 0
+        for seq in seqs[i:j]:
+            c += 1
+            params['sequence'] = ">" + seq
+            if c <= int(maxJobs):
+                jobId = serviceRun(options.email, options.title, params)
+                jobs.append(jobId)
+                if outputLevel > 0:
+                    if useSeqId:
+                        print("Submitting job for: %s" % str(seq.split()[0]))
+                    else:
+                        print("JobId: " + jobId, file=sys.stderr)
+        for k, jobId in enumerate(jobs[:]):
+            if outputLevel > 0:
+                print("JobId: " + jobId, file=sys.stderr)
+            else:
+                print(jobId)
+            if useSeqId:
+                options.outfile = str(seqs[i + k].split()[0])
+            getResult(jobId)
+            done += 1
+            jobs.remove(jobId)
+        i += maxJobs
+        j += maxJobs
+        time.sleep(pollFreq)
+
 
 
 # Get job status
@@ -439,10 +489,15 @@ def getResult(jobId):
                 else:
                     fmode = 'w'
 
-                fh = open(filename, fmode)
-
-                fh.write(result)
-                fh.close()
+                try:
+                    fh = open(filename, fmode)
+                    fh.write(result)
+                    fh.close()
+                except TypeError:
+                    fh.close()
+                    fh = open(filename, "wb")
+                    fh.write(result)
+                    fh.close()
                 if outputLevel > 0:
                     print("Creating result file: " + filename)
     printDebugMessage(u'getResult', u'End', 1)
@@ -542,7 +597,7 @@ Sequence similarity search with FASTM.
 
 [General]
   -h, --help            Show this help message and exit.
-  --async               Forces to make an asynchronous query.
+  --asyncjob            Forces to make an asynchronous query.
   --title               Title for job.
   --status              Get job status.
   --resultTypes         Get available result types for job.
@@ -554,6 +609,7 @@ Sequence similarity search with FASTM.
   --params              List input parameters.
   --paramDetail         Display details for input parameter.
   --verbose             Increase output.
+  --version             Prints out the version of the Client and exit.
   --quiet               Decrease output.
   --baseUrl             Base URL. Defaults to:
                         https://www.ebi.ac.uk/Tools/services/rest/fastm
@@ -566,7 +622,7 @@ Synchronous job:
 Asynchronous job:
   Use this if you want to retrieve the results at a later time. The results
   are stored for up to 24 hours.
-  Usage: python fastm.py --async --email <your@email.com> [options...] <SeqFile|SeqID(s)>
+  Usage: python fastm.py --asyncjob --email <your@email.com> [options...] <SeqFile|SeqID(s)>
   Returns: jobid
 
 Check status of Asynchronous job:
@@ -598,15 +654,19 @@ elif options.params:
 # Get parameter details
 elif options.paramDetail:
     printGetParameterDetails(options.paramDetail)
+# Print Client version
+elif options.version:
+    print("Revision: %s" % version)
+    sys.exit()
 # Submit job
 elif options.email and not options.jobid:
     params = {}
-    if len(args) == 1:
+    if len(args) == 1 and "true" not in args and "false" not in args:
         if os.path.exists(args[0]):  # Read file into content
             params[u'sequence'] = readFile(args[0])
         else:  # Argument is a sequence id
             params[u'sequence'] = args[0]
-    elif len(args) == 2:
+    elif len(args) == 2 and "true" not in args and "false" not in args:
         if os.path.exists(args[0]) and os.path.exists(args[1]):  # Read file into content
             params[u'asequence'] = readFile(args[0])
             params[u'bsequence'] = readFile(args[1])
@@ -678,21 +738,25 @@ elif options.email and not options.jobid:
     
 
     if not options.scores:
-        params['scores'] = '50'
+        params['scores'] = 50
     if options.scores:
         params['scores'] = options.scores
     
 
     if not options.alignments:
-        params['alignments'] = '50'
+        params['alignments'] = 50
     if options.alignments:
         params['alignments'] = options.alignments
     
 
+    if not options.scoreformat:
+        params['scoreformat'] = 'default'
     if options.scoreformat:
         params['scoreformat'] = options.scoreformat
     
 
+    if not options.stats:
+        params['stats'] = '1'
     if options.stats:
         params['stats'] = options.stats
     
@@ -705,6 +769,8 @@ elif options.email and not options.jobid:
         params['dbrange'] = options.dbrange
     
 
+    if not options.filter:
+        params['filter'] = 'none'
     if options.filter:
         params['filter'] = options.filter
     
@@ -715,20 +781,31 @@ elif options.email and not options.jobid:
 
 
     # Submit the job
-    jobId = serviceRun(options.email, options.title, params)
-    if options.async: # Async mode
-        print(jobId)
-        if outputLevel > 0:
-            print("To check status: python %s --status --jobid %s"
-                  "" % (os.path.basename(__file__), jobId))
+    if options.multifasta:
+        multipleServiceRun(options.email, options.title, params,
+                           options.useSeqId, options.maxJobs,
+                           outputLevel)
     else:
-        # Sync mode
-        if outputLevel > 0:
-            print("JobId: " + jobId, file=sys.stderr)
-        else:
+        if options.useSeqId:
+            print("Warning: --useSeqId option ignored.")
+        if options.maxJobs:
+            print("Warning: --maxJobs option ignored.")
+
+        jobId = serviceRun(options.email, options.title, params)
+        if options.asyncjob: # Async mode
             print(jobId)
-        time.sleep(pollFreq)
-        getResult(jobId)
+            if outputLevel > 0:
+                print("To check status: python %s --status --jobid %s"
+                      "" % (os.path.basename(__file__), jobId))
+        else:
+            # Sync mode
+            if outputLevel > 0:
+                print("JobId: " + jobId, file=sys.stderr)
+            else:
+                print(jobId)
+            time.sleep(pollFreq)
+            getResult(jobId)
+
 # Get job status
 elif options.jobid and options.status:
     printGetStatus(options.jobid)

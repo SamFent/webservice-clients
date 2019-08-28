@@ -32,6 +32,7 @@ from __future__ import print_function
 import os
 import sys
 import time
+import requests
 import platform
 from xmltramp2 import xmltramp
 from optparse import OptionParser
@@ -55,6 +56,7 @@ except NameError:
 
 # Base URL for service
 baseUrl = u'https://www.ebi.ac.uk/Tools/services/rest/pratt'
+version = u'2019-07-03 12:51'
 
 # Set interval for checking status
 pollFreq = 3
@@ -69,41 +71,41 @@ numOpts = len(sys.argv)
 parser = OptionParser(add_help_option=False)
 
 # Tool specific options (Try to print all the commands automatically)
-parser.add_option('--minPerc', help=('Set the minimum percentage of the input sequences that should match a'
+parser.add_option('--minPerc', type=int, help=('Set the minimum percentage of the input sequences that should match a'
                   'pattern (C%). If you set this to, say 80, Pratt will only report'
                   'patterns matching at least 80 % of the sequences input.'))
-parser.add_option('--patternPosition', help=('Pattern position in sequence (PP parameter)'))
-parser.add_option('--maxPatternLength', help=('Maximum pattern length (PL parameter) allows you to set the maximum'
+parser.add_option('--patternPosition', type=str, help=('Pattern position in sequence (PP parameter)'))
+parser.add_option('--maxPatternLength', type=int, help=('Maximum pattern length (PL parameter) allows you to set the maximum'
                   'length of a pattern. The length of the pattern C-x(2,4)-[DE] is'
                   '1+4+1=6. The memory requirement of Pratt depends on L; a higher L'
                   'value gives higher memory requirement.'))
-parser.add_option('--maxNumPatternSymbols', help=('Maximum number of pattern symbols (PN parameter). Using this you can'
+parser.add_option('--maxNumPatternSymbols', type=int, help=('Maximum number of pattern symbols (PN parameter). Using this you can'
                   'set the maximum number of symbols in a pattern. The pattern'
                   'C-x(2,4)-[DE] has 2 symbols (C and [DE]). When PN is increased, Pratt'
                   'will require more memory.'))
-parser.add_option('--maxNumWildcard', help=('Maximum length of a widecard (x). Using this option you can set the'
+parser.add_option('--maxNumWildcard', type=int, help=('Maximum length of a widecard (x). Using this option you can set the'
                   'maximum length of a wildcard (PX parameter). Increasing this will'
                   'increase the time used by Pratt, and also slightly the memory'
                   'required.'))
-parser.add_option('--maxNumFlexSpaces', help=('Maximum length of flexible spaces. Using this option you can set the'
+parser.add_option('--maxNumFlexSpaces', type=int, help=('Maximum length of flexible spaces. Using this option you can set the'
                   'maximum number of flexible wildcards (matching a variable number of'
                   'arbitrary sequence symbols) (FN parameter). Increasing this will'
                   'increase the time used by Pratt.'))
-parser.add_option('--maxFlexibility', help=('Maximum flexibility. You can set the maximum flexibility of a flexible'
+parser.add_option('--maxFlexibility', type=int, help=('Maximum flexibility. You can set the maximum flexibility of a flexible'
                   'wildcard (matching a variable number of arbitrary sequence symbols)'
                   '(FL parameter). For instance x(2,4) and x(10,12) has flexibility 2,'
                   'and x(10) has flexibility 0. Increasing this will increase the time'
                   'used by Pratt.'))
-parser.add_option('--maxFlexProduct', help=('Maximum flex. product. Using this option you can set an upper limit on'
+parser.add_option('--maxFlexProduct', type=int, help=('Maximum flex. product. Using this option you can set an upper limit on'
                   'the product of a flexibilities for a pattern (FP parameter). This is'
                   'related to the memory requirements of the search, and increasing the'
                   'limit, increases the memory usage.'))
 parser.add_option('--patternSymbolFile', action='store_true', help=('Pattern Symbol File (BI parameter)'))
-parser.add_option('--numPatternSymbols', help=('Number of pattern symbols used in the initial search (BN parameter).'))
-parser.add_option('--patternScoring', help=('Pattern scoring (S parameter)'))
-parser.add_option('--patternGraph', help=('Pattern Graph (G parameter) allows the use of an alignment or a query'
+parser.add_option('--numPatternSymbols', type=int, help=('Number of pattern symbols used in the initial search (BN parameter).'))
+parser.add_option('--patternScoring', type=str, help=('Pattern scoring (S parameter)'))
+parser.add_option('--patternGraph', type=str, help=('Pattern Graph (G parameter) allows the use of an alignment or a query'
                   'sequence to restrict the pattern search.'))
-parser.add_option('--searchGreediness', help=('Using the greediness parameter (E) you can adjust the greediness of'
+parser.add_option('--searchGreediness', type=int, help=('Using the greediness parameter (E) you can adjust the greediness of'
                   'the search. Setting E to 0 (zero), the search will be exhaustive.'
                   'Increasing E increases the greediness, and decreases the time used in'
                   'the search.'))
@@ -120,8 +122,8 @@ parser.add_option('--patternFormat', action='store_true', help=('PROSITE Pattern
                   'off, patterns are output in a simpler consensus pattern style (for'
                   'instance Cxx--[DE] where x matches exactly one arbitrary sequence'
                   'symbol and - matches zero or one arbitrary sequence symbol).'))
-parser.add_option('--maxNumPatterns', help=('Maximum number of patterns (ON parameter) between 1 and 100.'))
-parser.add_option('--maxNumAlignments', help=('Maximum number of alignments (OA parameter) between 1 and 100.'))
+parser.add_option('--maxNumPatterns', type=int, help=('Maximum number of patterns (ON parameter) between 1 and 100.'))
+parser.add_option('--maxNumAlignments', type=int, help=('Maximum number of alignments (OA parameter) between 1 and 100.'))
 parser.add_option('--printPatterns', action='store_true', help=('Print Patterns in sequences (M parameter) If the M option is set, then'
                   'Pratt will print out the location of the sequence segments matching'
                   'each of the (maximum 52) best patterns. The patterns are given labels'
@@ -130,19 +132,19 @@ parser.add_option('--printPatterns', action='store_true', help=('Print Patterns 
                   'pattern with label C matches the third K-tuple in a sequence C is'
                   'printed out. If several patterns match in the same K-tuple, only the'
                   'best will be printed.'))
-parser.add_option('--printingRatio', help=('Printing ratio (MR parameter). sets the K value (ratio) used for'
+parser.add_option('--printingRatio', type=int, help=('Printing ratio (MR parameter). sets the K value (ratio) used for'
                   'printing the summary information about where in each sequence the'
                   'pattern matches are found.'))
 parser.add_option('--printVertically', action='store_true', help=('Print vertically (MV parameter). if set, the output is printed'
                   'vertically instead of horizontally, vertical output can be better for'
                   'large sequence sets.'))
-parser.add_option('--stype', help=('Defines the type of the sequences to be aligned.'))
-parser.add_option('--sequence', help=('The input set of up to 100 sequences can be entered directly into this'
+parser.add_option('--stype', type=str, help=('Defines the type of the sequences to be aligned.'))
+parser.add_option('--sequence', type=str, help=('The input set of up to 100 sequences can be entered directly into this'
                   'form. The sequences can be in FASTA or UniProtKB/Swiss-Prot format. A'
                   'partially formatted sequences are not accepted. Note that directly'
                   'using data from word processors may yield unpredictable results as'
                   'hidden/control characters may be present.'))
-parser.add_option('--ppfile', help=('Pattern restriction file. The restriction file limits the sequence'
+parser.add_option('--ppfile', type=str, help=('Pattern restriction file. The restriction file limits the sequence'
                   'range via the start/end parameter and is in the format >Sequence'
                   '(start, end). If parameter PP is off, the restiction file will be'
                   'ignored.'))
@@ -152,7 +154,7 @@ parser.add_option('--email', help='E-mail address.')
 parser.add_option('--title', help='Job title.')
 parser.add_option('--outfile', help='File name for results.')
 parser.add_option('--outformat', help='Output format for results.')
-parser.add_option('--async', action='store_true', help='Asynchronous mode.')
+parser.add_option('--asyncjob', action='store_true', help='Asynchronous mode.')
 parser.add_option('--jobid', help='Job identifier.')
 parser.add_option('--polljob', action="store_true", help='Get job result.')
 parser.add_option('--pollFreq', type='int', default=3, help='Poll frequency in seconds (default 3s).')
@@ -160,8 +162,15 @@ parser.add_option('--status', action="store_true", help='Get job status.')
 parser.add_option('--resultTypes', action='store_true', help='Get result types.')
 parser.add_option('--params', action='store_true', help='List input parameters.')
 parser.add_option('--paramDetail', help='Get details for parameter.')
+parser.add_option('--multifasta', action='store_true', help='Treat input as a set of fasta formatted sequences.')
+parser.add_option('--useSeqId', action='store_true', help='Use sequence identifiers for output filenames.'
+                                                          'Only available in multi-fasta and multi-identifier modes.')
+parser.add_option('--maxJobs', type='int', help='Maximum number of concurrent jobs. '
+                                                'Only available in multifasta or list file modes.')
+
 parser.add_option('--quiet', action='store_true', help='Decrease output level.')
 parser.add_option('--verbose', action='store_true', help='Increase output level.')
+parser.add_option('--version', action='store_true', help='Prints out the version of the Client and exit.')
 parser.add_option('--debugLevel', type='int', default=debugLevel, help='Debugging level.')
 parser.add_option('--baseUrl', default=baseUrl, help='Base URL for service.')
 
@@ -184,6 +193,14 @@ if options.pollFreq:
 
 if options.baseUrl:
     baseUrl = options.baseUrl
+if options.multifasta:
+    multifasta = options.multifasta
+
+if options.useSeqId:
+    useSeqId = options.useSeqId
+
+if options.maxJobs:
+    maxJobs = options.maxJobs
 
 
 # Debug print
@@ -197,16 +214,16 @@ def getUserAgent():
     printDebugMessage(u'getUserAgent', u'Begin', 11)
     # Agent string for urllib2 library.
     urllib_agent = u'Python-urllib/%s' % urllib_version
-    clientRevision = u'$Revision: 2018 $'
-    clientVersion = u'0'
-    if len(clientRevision) > 11:
-        clientVersion = clientRevision[11:-2]
+    clientRevision = version
     # Prepend client specific agent string.
+    try:
+        pythonversion = platform.python_version()
+        pythonsys = platform.system()
+    except ValueError:
+        pythonversion, pythonsys = "Unknown", "Unknown"
     user_agent = u'EBI-Sample-Client/%s (%s; Python %s; %s) %s' % (
-        clientVersion, os.path.basename(__file__),
-        platform.python_version(), platform.system(),
-        urllib_agent
-    )
+        clientRevision, os.path.basename(__file__),
+        pythonversion, pythonsys, urllib_agent)
     printDebugMessage(u'getUserAgent', u'user_agent: ' + user_agent, 12)
     printDebugMessage(u'getUserAgent', u'End', 11)
     return user_agent
@@ -238,8 +255,7 @@ def restRequest(url):
         reqH.close()
     # Errors are indicated by HTTP status codes.
     except HTTPError as ex:
-        print(xmltramp.parse(unicode(ex.read(), u'utf-8'))[0][0])
-        quit()
+        result = requests.get(url).content
     printDebugMessage(u'restRequest', u'End', 11)
     return result
 
@@ -324,6 +340,40 @@ def serviceRun(email, title, params):
     printDebugMessage(u'serviceRun', u'jobId: ' + jobId, 2)
     printDebugMessage(u'serviceRun', u'End', 1)
     return jobId
+def multipleServiceRun(email, title, params, useSeqId, maxJobs, outputLevel):
+    seqs = params['sequence']
+    seqs = seqs.split(">")[1:]
+    i = 0
+    j = maxJobs
+    done = 0
+    jobs = []
+    while done < len(seqs):
+        c = 0
+        for seq in seqs[i:j]:
+            c += 1
+            params['sequence'] = ">" + seq
+            if c <= int(maxJobs):
+                jobId = serviceRun(options.email, options.title, params)
+                jobs.append(jobId)
+                if outputLevel > 0:
+                    if useSeqId:
+                        print("Submitting job for: %s" % str(seq.split()[0]))
+                    else:
+                        print("JobId: " + jobId, file=sys.stderr)
+        for k, jobId in enumerate(jobs[:]):
+            if outputLevel > 0:
+                print("JobId: " + jobId, file=sys.stderr)
+            else:
+                print(jobId)
+            if useSeqId:
+                options.outfile = str(seqs[i + k].split()[0])
+            getResult(jobId)
+            done += 1
+            jobs.remove(jobId)
+        i += maxJobs
+        j += maxJobs
+        time.sleep(pollFreq)
+
 
 
 # Get job status
@@ -455,10 +505,15 @@ def getResult(jobId):
                 else:
                     fmode = 'w'
 
-                fh = open(filename, fmode)
-
-                fh.write(result)
-                fh.close()
+                try:
+                    fh = open(filename, fmode)
+                    fh.write(result)
+                    fh.close()
+                except TypeError:
+                    fh.close()
+                    fh = open(filename, "wb")
+                    fh.write(result)
+                    fh.close()
                 if outputLevel > 0:
                     print("Creating result file: " + filename)
     printDebugMessage(u'getResult', u'End', 1)
@@ -574,7 +629,7 @@ Protein function analysis with Pratt.
 
 [General]
   -h, --help            Show this help message and exit.
-  --async               Forces to make an asynchronous query.
+  --asyncjob            Forces to make an asynchronous query.
   --title               Title for job.
   --status              Get job status.
   --resultTypes         Get available result types for job.
@@ -586,6 +641,7 @@ Protein function analysis with Pratt.
   --params              List input parameters.
   --paramDetail         Display details for input parameter.
   --verbose             Increase output.
+  --version             Prints out the version of the Client and exit.
   --quiet               Decrease output.
   --baseUrl             Base URL. Defaults to:
                         https://www.ebi.ac.uk/Tools/services/rest/pratt
@@ -598,7 +654,7 @@ Synchronous job:
 Asynchronous job:
   Use this if you want to retrieve the results at a later time. The results
   are stored for up to 24 hours.
-  Usage: python pratt.py --async --email <your@email.com> [options...] <SeqFile|SeqID(s)>
+  Usage: python pratt.py --asyncjob --email <your@email.com> [options...] <SeqFile|SeqID(s)>
   Returns: jobid
 
 Check status of Asynchronous job:
@@ -630,15 +686,19 @@ elif options.params:
 # Get parameter details
 elif options.paramDetail:
     printGetParameterDetails(options.paramDetail)
+# Print Client version
+elif options.version:
+    print("Revision: %s" % version)
+    sys.exit()
 # Submit job
 elif options.email and not options.jobid:
     params = {}
-    if len(args) == 1:
+    if len(args) == 1 and "true" not in args and "false" not in args:
         if os.path.exists(args[0]):  # Read file into content
             params[u'sequence'] = readFile(args[0])
         else:  # Argument is a sequence id
             params[u'sequence'] = args[0]
-    elif len(args) == 2:
+    elif len(args) == 2 and "true" not in args and "false" not in args:
         if os.path.exists(args[0]) and os.path.exists(args[1]):  # Read file into content
             params[u'asequence'] = readFile(args[0])
             params[u'bsequence'] = readFile(args[1])
@@ -769,20 +829,31 @@ elif options.email and not options.jobid:
 
 
     # Submit the job
-    jobId = serviceRun(options.email, options.title, params)
-    if options.async: # Async mode
-        print(jobId)
-        if outputLevel > 0:
-            print("To check status: python %s --status --jobid %s"
-                  "" % (os.path.basename(__file__), jobId))
+    if options.multifasta:
+        multipleServiceRun(options.email, options.title, params,
+                           options.useSeqId, options.maxJobs,
+                           outputLevel)
     else:
-        # Sync mode
-        if outputLevel > 0:
-            print("JobId: " + jobId, file=sys.stderr)
-        else:
+        if options.useSeqId:
+            print("Warning: --useSeqId option ignored.")
+        if options.maxJobs:
+            print("Warning: --maxJobs option ignored.")
+
+        jobId = serviceRun(options.email, options.title, params)
+        if options.asyncjob: # Async mode
             print(jobId)
-        time.sleep(pollFreq)
-        getResult(jobId)
+            if outputLevel > 0:
+                print("To check status: python %s --status --jobid %s"
+                      "" % (os.path.basename(__file__), jobId))
+        else:
+            # Sync mode
+            if outputLevel > 0:
+                print("JobId: " + jobId, file=sys.stderr)
+            else:
+                print(jobId)
+            time.sleep(pollFreq)
+            getResult(jobId)
+
 # Get job status
 elif options.jobid and options.status:
     printGetStatus(options.jobid)

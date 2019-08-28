@@ -63,6 +63,7 @@ use Time::HiRes qw(usleep);
 
 # Base URL for service
 my $baseUrl = 'https://www.ebi.ac.uk/Tools/services/rest/emboss_seqret';
+my $version = '2019-07-03 16:26';
 
 # Set interval for checking status
 my $checkInterval = 3;
@@ -91,7 +92,7 @@ GetOptions(
     'reverse'         => \$params{'reverse'},        # Reverse-complement of input DNA sequences
     'outputcase=s'    => \$params{'outputcase'},     # Change alphabet case for output sequences.
     'seqrange=s'      => \$params{'seqrange'},       # Specify a range or section of the input sequence to use in the search. Example: Specifying '34-89' in an input sequence of total length 100, will tell EMBOSS seqret to only use residues 34 to 89, inclusive.
-    'sequence=a'      => \$params{'sequence'},       # One or more sequences to be translated can be entered directly into this form. Sequences can be in GCG, FASTA, EMBL (Nucleotide only), GenBank, PIR, NBRF, PHYLIP or UniProtKB/Swiss-Prot (Protein only) format. Partially formatted sequences are not accepted. Adding a return to the end of the sequence may help certain applications understand the input. Note that directly using data from word processors may yield unpredictable results as hidden/control characters may be present. There is a limit of 2MB.
+    'sequence=s'      => \$params{'sequence'},       # One or more sequences to be translated can be entered directly into this form. Sequences can be in GCG, FASTA, EMBL (Nucleotide only), GenBank, PIR, NBRF, PHYLIP or UniProtKB/Swiss-Prot (Protein only) format. Partially formatted sequences are not accepted. Adding a return to the end of the sequence may help certain applications understand the input. Note that directly using data from word processors may yield unpredictable results as hidden/control characters may be present. There is a limit of 2MB.
     # Generic options
     'email=s'         => \$params{'email'},          # User e-mail address
     'title=s'         => \$params{'title'},          # Job title
@@ -99,7 +100,7 @@ GetOptions(
     'outformat=s'     => \$params{'outformat'},      # Output file type
     'jobid=s'         => \$params{'jobid'},          # JobId
     'help|h'          => \$params{'help'},           # Usage help
-    'async'           => \$params{'async'},          # Asynchronous submission
+    'asyncjob'        => \$params{'asyncjob'},       # Asynchronous submission
     'polljob'         => \$params{'polljob'},        # Get results
     'pollFreq=f'      => \$params{'pollFreq'},       # Poll Frequency
     'resultTypes'     => \$params{'resultTypes'},    # Get result types
@@ -107,6 +108,7 @@ GetOptions(
     'params'          => \$params{'params'},         # List input parameters
     'paramDetail=s'   => \$params{'paramDetail'},    # Get details for parameter
     'verbose'         => \$params{'verbose'},        # Increase output level
+    'version'         => \$params{'version'},        # Prints out the version of the Client and exit.
     'quiet'           => \$params{'quiet'},          # Decrease output level
     'debugLevel=i'    => \$params{'debugLevel'},     # Debugging level
     'baseUrl=s'       => \$baseUrl,                  # Base URL for service.
@@ -144,6 +146,7 @@ if (
             || $params{'status'}
             || $params{'params'}
             || $params{'paramDetail'}
+            || $params{'version'}
     )
         && !(defined($ARGV[0]) || defined($params{'sequence'}))
 ) {
@@ -161,6 +164,12 @@ elsif ($params{'params'}) {
 # Get parameter details
 elsif ($params{'paramDetail'}) {
     &print_param_details($params{'paramDetail'});
+}
+
+# Print Client version
+elsif ($params{'version'}) {
+  print STDOUT 'Revision: ' . $version, "\n";
+  exit(1);
 }
 
 # Job status
@@ -230,7 +239,7 @@ sub rest_user_agent() {
     my $ua = LWP::UserAgent->new();
     # Set 'User-Agent' HTTP header to identifiy the client.
     my $revisionNumber = 0;
-    $revisionNumber = $1 if ('$Revision$' =~ m/(\d+)/);
+    $revisionNumber = "Revision: " . $version;
     $ua->agent("EBI-Sample-Client/$revisionNumber ($scriptName; $OSNAME) " . $ua->agent());
     # Configure HTTP proxy support from environment.
     $ua->env_proxy;
@@ -267,7 +276,7 @@ sub rest_error() {
         elsif ($contentdata =~ m/<description>([^<]+)<\/description>/) {
             $error_message = $1;
         }
-        die 'http status: ' . $response->code . ' ' . $response->message . '  ' . $error_message;
+        # die 'http status: ' . $response->code . ' ' . $response->message . '  ' . $error_message;
     }
     print_debug_message('rest_error', 'End', 21);
 }
@@ -670,7 +679,7 @@ sub submit_job {
     my $jobid = &rest_run($params{'email'}, $params{'title'}, \%params);
 
     # Asynchronous submission.
-    if (defined($params{'async'})) {
+    if (defined($params{'asyncjob'})) {
         print STDOUT $jobid, "\n";
         if ($outputLevel > 0) {
             print STDERR
@@ -854,7 +863,7 @@ sub get_results {
             @multResultTypes = split(',', $params{'outformat'});
         }
         else {
-            @multResultTypes[0] = $params{'outformat'};
+            $multResultTypes[0] = $params{'outformat'};
         }
         # check if the provided formats are recognised
         foreach my $inputType (@multResultTypes) {
@@ -1012,7 +1021,7 @@ Sequenc format conversion with seqret.
 
 [General]
   -h, --help            Show this help message and exit.
-  --async               Forces to make an asynchronous query.
+  --asyncjob            Forces to make an asynchronous query.
   --title               Title for job.
   --status              Get job status.
   --resultTypes         Get available result types for job.
@@ -1025,6 +1034,7 @@ Sequenc format conversion with seqret.
   --paramDetail         Display details for input parameter.
   --quiet               Decrease output.
   --verbose             Increase output.
+  --version             Prints out the version of the Client and exit.
   --baseUrl             Base URL. Defaults to:
                         https://www.ebi.ac.uk/Tools/services/rest/emboss_seqret
 
@@ -1036,7 +1046,7 @@ Synchronous job:
 Asynchronous job:
   Use this if you want to retrieve the results at a later time. The results
   are stored for up to 24 hours.
-  Usage: perl $scriptName --async --email <your\@email.com> [options...] <SeqFile|SeqID(s)>
+  Usage: perl $scriptName --asyncjob --email <your\@email.com> [options...] <SeqFile|SeqID(s)>
   Returns: jobid
 
 Check status of Asynchronous job:

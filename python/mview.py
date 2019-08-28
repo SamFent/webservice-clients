@@ -32,6 +32,7 @@ from __future__ import print_function
 import os
 import sys
 import time
+import requests
 import platform
 from xmltramp2 import xmltramp
 from optparse import OptionParser
@@ -55,6 +56,7 @@ except NameError:
 
 # Base URL for service
 baseUrl = u'https://www.ebi.ac.uk/Tools/services/rest/mview'
+version = u'2019-07-03 12:51'
 
 # Set interval for checking status
 pollFreq = 3
@@ -69,26 +71,26 @@ numOpts = len(sys.argv)
 parser = OptionParser(add_help_option=False)
 
 # Tool specific options (Try to print all the commands automatically)
-parser.add_option('--stype', help=('Indicates if the sequences to align are protein or nucleotide'
+parser.add_option('--stype', type=str, help=('Indicates if the sequences to align are protein or nucleotide'
                   '(DNA/RNA).'))
-parser.add_option('--informat', help=('Format of the input sequence similarity search result or multiple'
+parser.add_option('--informat', type=str, help=('Format of the input sequence similarity search result or multiple'
                   'sequence alignment to be processed.'))
-parser.add_option('--outputformat', help=('Output format for the alignment.'))
-parser.add_option('--htmlmarkup', help=('Amount of HTML markup to be used in the result.'))
+parser.add_option('--outputformat', type=str, help=('Output format for the alignment.'))
+parser.add_option('--htmlmarkup', type=str, help=('Amount of HTML markup to be used in the result.'))
 parser.add_option('--css', action='store_true', help=('Use Cascading Style Sheets'))
-parser.add_option('--pcid', help=('Compute percent identities with respect to'))
+parser.add_option('--pcid', type=str, help=('Compute percent identities with respect to'))
 parser.add_option('--alignment', action='store_true', help=('Show or hide the aligned sequences.'))
 parser.add_option('--ruler', action='store_true', help=('Show or hide the ruler showing the sequence coordinates.'))
-parser.add_option('--width', help=('Width of output alignment.'))
-parser.add_option('--coloring', help=('Basic style of coloring'))
-parser.add_option('--colormap', help=('Color map'))
-parser.add_option('--groupmap', help=('Group map'))
+parser.add_option('--width', type=int, help=('Width of output alignment.'))
+parser.add_option('--coloring', type=str, help=('Basic style of coloring'))
+parser.add_option('--colormap', type=str, help=('Color map'))
+parser.add_option('--groupmap', type=str, help=('Group map'))
 parser.add_option('--consensus', action='store_true', help=('Show or hide consensus sequence derived from the alignment.'))
-parser.add_option('--concoloring', help=('Basic style of consensus coloring'))
-parser.add_option('--concolormap', help=('Consensus color map'))
-parser.add_option('--congroupmap', help=('Consensus group map'))
+parser.add_option('--concoloring', type=str, help=('Basic style of consensus coloring'))
+parser.add_option('--concolormap', type=str, help=('Consensus color map'))
+parser.add_option('--congroupmap', type=str, help=('Consensus group map'))
 parser.add_option('--congaps', action='store_true', help=('Count gaps during consensus compuatations'))
-parser.add_option('--sequence', help=('Sequence similarity search result (e.g. BLAST or FASTA search report)'
+parser.add_option('--sequence', type=str, help=('Sequence similarity search result (e.g. BLAST or FASTA search report)'
                   'or a multiple sequence alignment.'))
 # General options
 parser.add_option('-h', '--help', action='store_true', help='Show this help message and exit.')
@@ -96,7 +98,7 @@ parser.add_option('--email', help='E-mail address.')
 parser.add_option('--title', help='Job title.')
 parser.add_option('--outfile', help='File name for results.')
 parser.add_option('--outformat', help='Output format for results.')
-parser.add_option('--async', action='store_true', help='Asynchronous mode.')
+parser.add_option('--asyncjob', action='store_true', help='Asynchronous mode.')
 parser.add_option('--jobid', help='Job identifier.')
 parser.add_option('--polljob', action="store_true", help='Get job result.')
 parser.add_option('--pollFreq', type='int', default=3, help='Poll frequency in seconds (default 3s).')
@@ -106,6 +108,7 @@ parser.add_option('--params', action='store_true', help='List input parameters.'
 parser.add_option('--paramDetail', help='Get details for parameter.')
 parser.add_option('--quiet', action='store_true', help='Decrease output level.')
 parser.add_option('--verbose', action='store_true', help='Increase output level.')
+parser.add_option('--version', action='store_true', help='Prints out the version of the Client and exit.')
 parser.add_option('--debugLevel', type='int', default=debugLevel, help='Debugging level.')
 parser.add_option('--baseUrl', default=baseUrl, help='Base URL for service.')
 
@@ -141,16 +144,16 @@ def getUserAgent():
     printDebugMessage(u'getUserAgent', u'Begin', 11)
     # Agent string for urllib2 library.
     urllib_agent = u'Python-urllib/%s' % urllib_version
-    clientRevision = u'$Revision: 2018 $'
-    clientVersion = u'0'
-    if len(clientRevision) > 11:
-        clientVersion = clientRevision[11:-2]
+    clientRevision = version
     # Prepend client specific agent string.
+    try:
+        pythonversion = platform.python_version()
+        pythonsys = platform.system()
+    except ValueError:
+        pythonversion, pythonsys = "Unknown", "Unknown"
     user_agent = u'EBI-Sample-Client/%s (%s; Python %s; %s) %s' % (
-        clientVersion, os.path.basename(__file__),
-        platform.python_version(), platform.system(),
-        urllib_agent
-    )
+        clientRevision, os.path.basename(__file__),
+        pythonversion, pythonsys, urllib_agent)
     printDebugMessage(u'getUserAgent', u'user_agent: ' + user_agent, 12)
     printDebugMessage(u'getUserAgent', u'End', 11)
     return user_agent
@@ -182,8 +185,7 @@ def restRequest(url):
         reqH.close()
     # Errors are indicated by HTTP status codes.
     except HTTPError as ex:
-        print(xmltramp.parse(unicode(ex.read(), u'utf-8'))[0][0])
-        quit()
+        result = requests.get(url).content
     printDebugMessage(u'restRequest', u'End', 11)
     return result
 
@@ -399,10 +401,15 @@ def getResult(jobId):
                 else:
                     fmode = 'w'
 
-                fh = open(filename, fmode)
-
-                fh.write(result)
-                fh.close()
+                try:
+                    fh = open(filename, fmode)
+                    fh.write(result)
+                    fh.close()
+                except TypeError:
+                    fh.close()
+                    fh = open(filename, "wb")
+                    fh.write(result)
+                    fh.close()
                 if outputLevel > 0:
                     print("Creating result file: " + filename)
     printDebugMessage(u'getResult', u'End', 1)
@@ -452,7 +459,7 @@ Multiple sequence alignment viewing with MView.
 
 [General]
   -h, --help            Show this help message and exit.
-  --async               Forces to make an asynchronous query.
+  --asyncjob            Forces to make an asynchronous query.
   --title               Title for job.
   --status              Get job status.
   --resultTypes         Get available result types for job.
@@ -464,6 +471,7 @@ Multiple sequence alignment viewing with MView.
   --params              List input parameters.
   --paramDetail         Display details for input parameter.
   --verbose             Increase output.
+  --version             Prints out the version of the Client and exit.
   --quiet               Decrease output.
   --baseUrl             Base URL. Defaults to:
                         https://www.ebi.ac.uk/Tools/services/rest/mview
@@ -476,7 +484,7 @@ Synchronous job:
 Asynchronous job:
   Use this if you want to retrieve the results at a later time. The results
   are stored for up to 24 hours.
-  Usage: python mview.py --async --email <your@email.com> [options...] <SeqFile|SeqID(s)>
+  Usage: python mview.py --asyncjob --email <your@email.com> [options...] <SeqFile|SeqID(s)>
   Returns: jobid
 
 Check status of Asynchronous job:
@@ -508,15 +516,19 @@ elif options.params:
 # Get parameter details
 elif options.paramDetail:
     printGetParameterDetails(options.paramDetail)
+# Print Client version
+elif options.version:
+    print("Revision: %s" % version)
+    sys.exit()
 # Submit job
 elif options.email and not options.jobid:
     params = {}
-    if len(args) == 1:
+    if len(args) == 1 and "true" not in args and "false" not in args:
         if os.path.exists(args[0]):  # Read file into content
             params[u'sequence'] = readFile(args[0])
         else:  # Argument is a sequence id
             params[u'sequence'] = args[0]
-    elif len(args) == 2:
+    elif len(args) == 2 and "true" not in args and "false" not in args:
         if os.path.exists(args[0]) and os.path.exists(args[1]):  # Read file into content
             params[u'asequence'] = readFile(args[0])
             params[u'bsequence'] = readFile(args[1])
@@ -541,23 +553,26 @@ elif options.email and not options.jobid:
     if options.stype:
         params['stype'] = options.stype
 
+    if not options.informat:
+        params['informat'] = 'automatic'
     if options.informat:
         params['informat'] = options.informat
     
 
+    if not options.outputformat:
+        params['outputformat'] = 'mview'
     if options.outputformat:
         params['outputformat'] = options.outputformat
     
 
+    if not options.htmlmarkup:
+        params['htmlmarkup'] = 'head'
     if options.htmlmarkup:
         params['htmlmarkup'] = options.htmlmarkup
     
 
-    if options.css:
+    if not options.css:
         params['css'] = 'true'
-    else:
-        params['css'] = 'false'
-    
     if options.css:
         params['css'] = options.css
     
@@ -581,7 +596,7 @@ elif options.email and not options.jobid:
     
 
     if not options.width:
-        params['width'] = '80'
+        params['width'] = 80
     if options.width:
         params['width'] = options.width
     
@@ -592,10 +607,14 @@ elif options.email and not options.jobid:
         params['coloring'] = options.coloring
     
 
+    if not options.colormap:
+        params['colormap'] = 'none'
     if options.colormap:
         params['colormap'] = options.colormap
     
 
+    if not options.groupmap:
+        params['groupmap'] = 'none'
     if options.groupmap:
         params['groupmap'] = options.groupmap
     
@@ -612,10 +631,14 @@ elif options.email and not options.jobid:
         params['concoloring'] = options.concoloring
     
 
+    if not options.concolormap:
+        params['concolormap'] = 'none'
     if options.concolormap:
         params['concolormap'] = options.concolormap
     
 
+    if not options.congroupmap:
+        params['congroupmap'] = 'none'
     if options.congroupmap:
         params['congroupmap'] = options.congroupmap
     
@@ -629,7 +652,7 @@ elif options.email and not options.jobid:
 
     # Submit the job
     jobId = serviceRun(options.email, options.title, params)
-    if options.async: # Async mode
+    if options.asyncjob: # Async mode
         print(jobId)
         if outputLevel > 0:
             print("To check status: python %s --status --jobid %s"
